@@ -4,12 +4,14 @@
  * tests/interop_node.mjs; tests/run_interop.sh drives both and shuttles
  * /tmp/sh/state.json between this machine and the droplet.
  *
- * Runs on the droplet because there is no local PHP. It requires nothing but
- * ext/openssl -- if this ever starts needing gmp, the protocol has drifted from
- * PROTOCOL.md sec 4 and the drift is the bug.
+ * Requires nothing but ext/openssl -- if this ever starts needing gmp or bcmath,
+ * the protocol has drifted from PROTOCOL.md sec 4 and the drift is the bug.
  */
 
-require_once __DIR__ . '/anon.php';
+// Resolved two ways because this script is invoked from two layouts: from the
+// repository (where anon.php is in ../inc/), and from a flat directory when the
+// PHP half is shuttled to another host because the dev machine has no PHP.
+require_once is_file(__DIR__ . '/anon.php') ? __DIR__ . '/anon.php' : __DIR__ . '/../inc/anon.php';
 
 define('STATE', getenv('SH_STATE') ?: '/tmp/scumhouse-interop/state.json');
 const CARD_INFO = 'scumhouse/card/v1';
