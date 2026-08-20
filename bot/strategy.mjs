@@ -235,7 +235,7 @@ function suspicion(view) {
   return score;
 }
 
-/* Rank candidates worst-first, breaking ties the SAME way in every seat.
+/* Rank a set of players worst-first, breaking ties the SAME way in every seat.
  *
  * The tie-break rotates with the day number rather than being random. Random
  * would split the vote, and a split is not a neutral outcome here: sh_tally_votes
@@ -252,6 +252,22 @@ function worstFirst(view, candidates, score) {
     return [...tied.slice(rot), ...tied.slice(0, rot), ...ranked.filter((p) => !tied.includes(p))];
   }
   return ranked;
+}
+
+/* The same ranking every seat computes, over every living player.
+ *
+ * Ranking a seat's OWN candidate list looks equivalent and is not: each seat
+ * excludes itself, so the lists differ, and on a day where nothing has happened
+ * yet -- every score still zero -- five seats can rank five different players
+ * first and scatter the vote. That is the exact failure this ordering exists to
+ * prevent. Rank the whole table, identically everywhere, and let each seat skip
+ * down to the first row it is actually allowed to vote for.
+
+ * On day one that makes the lynch arbitrary but UNANIMOUS, which is the point:
+ * an arbitrary lynch is a 1-in-N shot at a mafia, and a no-lynch is a certain
+ * free night for them. */
+function tableOrder(view, score) {
+  return worstFirst(view, view.players.filter((p) => p.alive), score);
 }
 
 /* The standing plurality, ignoring anyone we must not vote. */
@@ -303,7 +319,8 @@ export const deducingStrategy = {
     }
 
     const score = suspicion(view);
-    const worst = worstFirst(view, living, score)[0];
+    const liveIds = new Set(living.map((p) => p.user_id));
+    const worst = tableOrder(view, score).find((p) => liveIds.has(p.user_id));
     if (worst && (score[worst.user_id] || 0) > 0) {
       return `${worst.name} was pushing hard on someone who flipped town. I want an answer for that before anything else.`;
     }
@@ -332,7 +349,8 @@ export const deducingStrategy = {
     const confirmed = candidates.find((p) => (view.reads || {})[p.user_id] === 'MAFIA');
     if (confirmed) return confirmed.user_id;
 
-    const best = worstFirst(view, candidates, score)[0];
+    const allowed = new Set(candidates.map((p) => p.user_id));
+    const best = tableOrder(view, score).find((p) => allowed.has(p.user_id)) || candidates[0];
     const leader = voteLeader(view, candidates);
 
     // Consolidate. Abandoning a standing plurality to chase a hunch is how a
