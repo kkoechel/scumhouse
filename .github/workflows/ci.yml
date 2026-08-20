@@ -67,6 +67,18 @@ jobs:
       - name: Build the browser extension
         run: tools/build-extension.sh
 
+      # The only test that answers "can a table actually finish a game" -- every
+      # other suite checks one piece in isolation. It plays a full game with bots:
+      # registration for every seat, the deal, envelopes and escrow, the two-stage
+      # night retrieval, deaths, flips and the win condition.
+      - name: Play a full game with bots
+        env:
+          SH_TEST_DB: scumhouse_play_test
+          SH_TEST_DB_HOST: 127.0.0.1
+          SH_TEST_DB_USER: root
+          SH_TEST_DB_PASS: root
+        run: tests/play-game.sh 5
+
       - name: Endpoint authorisation
         env:
           SH_TEST_DB_HOST: 127.0.0.1

@@ -29,7 +29,19 @@ if ($local && $_SERVER['REQUEST_METHOD'] === 'POST') {
         // Removing an invite stops future sign-ins; it does not eject anyone from
         // a game in progress, which would strand their table mid-night.
         db()->prepare('DELETE FROM allowed_emails WHERE email=?')->execute([$email]);
-        $notice = 'Removed. Games already in progress are unaffected.';
+
+        // API tokens resolve straight to a user and never re-check this list, so
+        // without this a removed player keeps full API access indefinitely --
+        // and a locally-run client or bot would carry on playing.
+        $revoke = db()->prepare(
+            'UPDATE api_tokens t JOIN users u ON u.id = t.user_id
+                SET t.revoked_at = NOW()
+              WHERE u.email = ? AND t.revoked_at IS NULL'
+        );
+        $revoke->execute([$email]);
+        $n = $revoke->rowCount();
+        $notice = 'Removed' . ($n ? ", and revoked {$n} API token(s)" : '')
+                . '. Games already in progress are unaffected.';
     } elseif ($action === 'dismiss') {
         db()->prepare('UPDATE access_requests SET handled_at=NOW() WHERE id=?')
             ->execute([(int) ($_POST['id'] ?? 0)]);
