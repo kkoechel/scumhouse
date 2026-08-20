@@ -1,0 +1,89 @@
+# Example nginx configuration for Scumhouse.
+#
+# ---------------------------------------------------------------------------
+# THE /anon/ BLOCK IS NOT OPTIONAL AND IS NOT A PERFORMANCE TWEAK.
+#
+# Four endpoints under /anon/ are the ones a player's browser hits with NO
+# session cookie. That absence is the entire privacy guarantee: the server
+# cannot connect an anonymous submission to an account because nothing in the
+# request says which account it is.
+#
+# Except the access log, which records the client address of every request.
+#
+# tests/privacy_check.php enforces the application half of PROTOCOL.md section 7
+# -- that no code under public/anon/ reads a session, a cookie, or a client
+# address. It cannot enforce this half. An install that drops the block below
+# keeps working perfectly, passes every test, and quietly stops keeping the
+# promise the whole game is built on.
+#
+# After deploying, verify it rather than assuming:
+#
+#   before=$(wc -l < /var/log/nginx/access.log)
+#   curl -s -o /dev/null -X POST https://YOUR-HOST/scumhouse/anon/register.php
+#   curl -s -o /dev/null https://YOUR-HOST/scumhouse/rules.php
+#   after=$(wc -l < /var/log/nginx/access.log)
+#   # `after` must exceed `before` by the non-anon request only.
+#   grep -c "/scumhouse/anon/" /var/log/nginx/access.log   # must be 0
+# ---------------------------------------------------------------------------
+
+# --- The application itself -------------------------------------------------
+#
+# Bound to localhost. If you expose this port directly, anonymous submissions
+# travel unencrypted -- put TLS in front of it, always.
+server {
+    listen 127.0.0.1:8124;
+
+    root /var/www/scumhouse/public;
+    index index.php;
+
+    location ^~ /anon/ {
+        access_log off;
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php$is_args$args;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+}
+
+# --- The public vhost -------------------------------------------------------
+#
+# Mounted at /scumhouse/ here. To serve it at a domain root instead, set
+# APP_PATH to '' in inc/db.php and drop the prefix from these locations.
+server {
+    listen 443 ssl;
+    server_name example.com;
+
+    # ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    # Longest matching ^~ prefix wins regardless of order, but keep these two
+    # adjacent so they are never separated by an edit.
+    location ^~ /scumhouse/anon/ {
+        access_log off;
+        proxy_pass http://127.0.0.1:8124/anon/;
+        proxy_set_header Host $host;
+        # NO X-Real-IP and NO X-Forwarded-For, deliberately. The application does
+        # not read them, but there is no reason to hand them over either.
+        proxy_redirect off;
+    }
+
+    location ^~ /scumhouse/ {
+        proxy_pass http://127.0.0.1:8124/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+}

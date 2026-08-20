@@ -1,0 +1,69 @@
+# Uses only actions/checkout and the tools already on the runner. No third-party
+# actions on purpose: this repository asks people to trust that the JavaScript it
+# publishes is the JavaScript that gets served, and every extra action in the
+# pipeline is another party who could change that.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege, stated rather than inherited. Nothing here needs to write, and
+# on a public repo this workflow runs against pull requests from strangers.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: scumhouse_endpoint_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versions
+        run: |
+          php -v
+          node -v
+          php -m | grep -qx openssl && echo "ext-openssl: present"
+
+      - name: Syntax
+        run: find inc public tools tests -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Lint (undefined functions, stale prefixes)
+        run: php tests/lint.php
+
+      - name: Engine tests
+        run: php tests/simulate.php
+
+      - name: Privacy invariants
+        run: php tests/privacy_check.php
+
+      - name: Integrity manifest is current
+        run: tools/integrity.sh --check
+
+      # The one that matters: the real client crypto against the real server
+      # crypto, through every step of PROTOCOL.md.
+      - name: Crypto interop (JS <-> PHP)
+        run: tests/run_interop.sh
+
+      # And the other half: that the endpoints actually enforce who may do what.
+      # Includes an assertion that MySQL and PHP agree on the time, because every
+      # deadline in the game is written by one and compared by the other.
+      - name: Endpoint authorisation
+        env:
+          SH_TEST_DB_HOST: 127.0.0.1
+          SH_TEST_DB_USER: root
+          SH_TEST_DB_PASS: root
+        run: php tests/endpoints.php

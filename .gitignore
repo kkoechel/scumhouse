@@ -1,0 +1,11 @@
+# Real configuration, with real credentials. Never committed -- copy
+# inc/config.example.php to inc/config.php and edit that.
+inc/config.php
+
+# Runtime state
+storage/
+public/uploads/
+
+# Editor / OS noise
+*.swp
+.DS_Store
