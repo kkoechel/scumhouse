@@ -1,14 +1,15 @@
 # Makefile for Scumhouse deployment -- mirrors every other game's Makefile in this repo.
 #
 # Prereqs:
-#   1. ~/.ssh/config has a host entry matching REMOTE_HOST
+#   1. ~/.ssh/config has a host entry matching REMOTE_HOST (boarddames.com and
+#      every game on it live on the beponika-droplet box)
 #   2. inc/config.php exists on the server, created from inc/config.example.php
 #      (never synced from here -- see the --exclude below)
 
 # Override per deployment, e.g.
 #   make deploy REMOTE_HOST=my-server REMOTE_PATH=/srv/scumhouse
 # or export them in your environment.
-REMOTE_HOST ?= scumhouse-server
+REMOTE_HOST ?= beponika-droplet
 REMOTE_PATH ?= /var/www/scumhouse
 
 .PHONY: deploy dry-run ssh test
@@ -19,6 +20,7 @@ deploy:
 		--exclude='inc/config.php' \
 		--exclude='storage/sessions' \
 		--exclude='public/uploads' \
+		--exclude='dist' \
 		--exclude='tests' \
 		./ $(REMOTE_HOST):$(REMOTE_PATH)/
 
@@ -28,6 +30,7 @@ dry-run:
 		--exclude='inc/config.php' \
 		--exclude='storage/sessions' \
 		--exclude='public/uploads' \
+		--exclude='dist' \
 		--exclude='tests' \
 		./ $(REMOTE_HOST):$(REMOTE_PATH)/
 
