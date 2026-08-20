@@ -482,9 +482,14 @@ What it does *not* change: the server still sees the player's IP and still knows
 account they are. This is assurance about **which code holds the keys**, not anonymity.
 Sections 5.3 and 7 are unchanged.
 
-A store-delivered browser extension would go further -- it removes the clone step and
-updates itself -- and remains on the roadmap. The client here needs no store, no signing,
-no review and no update channel, which is why it came first.
+`extension/` packages that same client for a browser store, which goes further -- no clone
+step, and it updates itself -- at the cost of a developer account, review, and an update
+channel to maintain. It is built and loadable unpacked today but **not yet published**.
+
+The package deliberately mirrors this repository's layout, so every shared file is
+byte-identical and anyone can unzip a published build and diff it against the source. An
+extension you cannot check is simply a different party to trust, which would trade one
+delivery problem for another.
 
 ## 9. Death, flips, and win conditions
 

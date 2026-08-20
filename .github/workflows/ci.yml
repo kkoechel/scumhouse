@@ -61,6 +61,12 @@ jobs:
       # And the other half: that the endpoints actually enforce who may do what.
       # Includes an assertion that MySQL and PHP agree on the time, because every
       # deadline in the game is written by one and compared by the other.
+      # Asserts the packaged extension ships the shared crypto byte-identical to
+      # this repository, and references no remote code. A store build that fetched
+      # code at runtime would defeat the entire reason the extension exists.
+      - name: Build the browser extension
+        run: tools/build-extension.sh
+
       - name: Endpoint authorisation
         env:
           SH_TEST_DB_HOST: 127.0.0.1

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scumhouse</title>
+<style>
+  /* Self-contained: a popup is too small to be worth wiring the game's stylesheet
+     into, and Manifest V3 forbids inline script but not inline style. */
+  body {
+    margin: 0; width: 260px; padding: 1rem;
+    background: #12141a; color: #e8e3d8;
+    font: 14px/1.5 Georgia, "Times New Roman", serif;
+  }
+  h1 { font-size: 1rem; margin: 0 0 0.5rem; color: #d9a441; font-weight: 600; }
+  p { margin: 0 0 0.9rem; color: #98917f; font-size: 0.85rem; }
+  a.btn {
+    display: block; text-align: center; text-decoration: none;
+    background: #232733; color: #e8e3d8; border: 1px solid #333b4a;
+    border-radius: 4px; padding: 0.5rem;
+  }
+  a.btn:hover { border-color: #d9a441; }
+</style>
+</head>
+<body>
+  <h1>Scumhouse</h1>
+  <p>The client runs from this extension, so the game server never delivers the
+  code that holds your keys.</p>
+  <a class="btn" href="client/index.html" target="_blank" rel="noopener">Open Scumhouse</a>
+</body>
+</html>

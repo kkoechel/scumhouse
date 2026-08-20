@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Scumhouse",
+  "version": "0.1.0",
+  "description": "Play Scumhouse from code delivered by the extension store rather than by the game server.",
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": {
+    "default_title": "Scumhouse",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" }
+  },
+  "optional_host_permissions": ["https://*/*"],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "scumhouse@github.com.kkoechel",
+      "strict_min_version": "115.0"
+    }
+  }
+}

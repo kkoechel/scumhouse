@@ -118,6 +118,7 @@ confirming they fail.
     tools/integrity.sh  regenerates the committed script-hash manifest
     tools/prune.php     retention for finished games (dry run by default)
     client/             the locally-run client -- read client/README.md first
+    extension/          browser-extension packaging of that same client
 
 The game screen renders **client-side**, unlike the rest of the app. It has to: the server
 cannot render a card it is not allowed to know.
@@ -129,16 +130,27 @@ traffic that gives real mafia chat somewhere to hide. `tools/prune.php` drops th
 ephemeral tables for games finished more than 30 days ago; the day thread, votes, deaths
 and flips are the permanent record and are never touched.
 
+## Two ways to run it without trusting the server's code
+
+The hash manifest catches a build swapped for *everyone*, but not one swapped for *you* —
+the operator generates the `integrity` attribute too. Both of these close that by not
+letting the server deliver the code at all:
+
+- **[Local client](client/)** — run it from your own clone. Nothing to trust but the
+  repository you can hash yourself.
+- **[Browser extension](extension/)** — the same client, store-delivered and
+  self-updating, for people who will not clone a repository. Built and testable now;
+  **not yet submitted to either store.**
+
+Both authenticate with a revocable API token instead of a session cookie, so the API
+never accepts ambient credentials cross-origin. See §8.1.
+
 ## Roadmap
 
-- **A store-delivered browser extension.** Goes further than the local client — no clone
-  step, and it updates itself — at the cost of a developer account, store review and an
-  update channel to maintain. The local client needs none of those, which is why it
-  shipped first.
-
-Recently shipped: the [local client](client/) (§8.1), forced flips (§9.1) so a dead
-player can no longer stall the game by refusing to open their card, and submission
-jitter (§5.3).
+- **Publish the extension** to the Chrome and Firefox stores — needs a developer account,
+  review, and a commitment to an update channel.
+- **Play a game.** Everything here is verified at unit, crypto-interop, endpoint and
+  browser level. Five people arguing for forty-eight hours is a different test.
 
 ## Licence
 

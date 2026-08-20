@@ -6,6 +6,9 @@ inc/config.php
 storage/
 public/uploads/
 
+# Assembled extension package -- rebuild with tools/build-extension.sh
+dist/
+
 # Editor / OS noise
 *.swp
 .DS_Store
