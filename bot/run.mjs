@@ -12,11 +12,12 @@
  *
  *   --once     do one pass and exit (for cron, or for testing)
  *   --quiet    no logging
+ *   --strategy which decision layer to use (default: deducing)
  */
 import path from 'path';
 import os from 'os';
 import { Seat } from './client.mjs';
-import { heuristicStrategy } from './strategy.mjs';
+import { STRATEGIES } from './strategy.mjs';
 
 function arg(name, fallback) {
   const i = process.argv.indexOf('--' + name);
@@ -35,8 +36,15 @@ if (!base || !token || !gameId) {
 const statePath = arg('state', path.join(os.homedir(), '.scumhouse', `bot-${gameId}.json`));
 const quiet = flag('quiet');
 
+const strategyName = arg('strategy', process.env.SCUMHOUSE_STRATEGY || 'deducing');
+const strategy = STRATEGIES[strategyName];
+if (!strategy) {
+  console.error(`unknown --strategy '${strategyName}'; have: ${Object.keys(STRATEGIES).join(', ')}`);
+  process.exit(2);
+}
+
 const seat = new Seat({
-  base, token, gameId, statePath, strategy: heuristicStrategy,
+  base, token, gameId, statePath, strategy,
   log: (m) => quiet || console.log(`[${new Date().toISOString()}] ${m}`),
 });
 
@@ -70,6 +78,11 @@ async function buildView() {
     votedThisPhase: f.votes.some((v) => Number(v.voter_user_id) === f.me),
     actedThisNight: !!(seat.state.acted || {})[phaseTag],
     investigatedThisNight: !!(seat.state.eph || {})[g.phase_no],
+    // Scratch space the strategy owns and this seat persists between passes.
+    // The feed only ever carries the CURRENT phase's votes, so anything a
+    // strategy wants to remember across days it has to write down itself. It
+    // holds only what the seat was already sent -- notes, not extra access.
+    memory: (seat.state.mem = seat.state.mem || {}),
     nameOf: (id) => seat.nameOf(id),
   };
 }
@@ -80,7 +93,7 @@ const mark = (bucket, key) => {
   seat.save();
 };
 
-async function pass() {
+async function passInner() {
   await seat.refresh();
   const g = seat.feed.game;
 
@@ -103,19 +116,19 @@ async function pass() {
   const phaseTag = g.phase + g.phase_no;
   const view = await buildView();
 
-  const teamLine = await heuristicStrategy.mafiaChat(view);
+  const teamLine = await strategy.mafiaChat(view);
   if (teamLine) { await seat.sayToTeam(teamLine); mark('saidTeam', phaseTag); }
 
   if (g.phase === 'day') {
-    const line = await heuristicStrategy.daySpeak(view);
+    const line = await strategy.daySpeak(view);
     if (line) { await seat.say(line); mark('said', phaseTag); seat.log('spoke'); }
-    const target = await heuristicStrategy.dayVote(view);
+    const target = await strategy.dayVote(view);
     if (target) { await seat.vote(target); seat.log('voted for ' + seat.nameOf(target)); }
     return;
   }
 
   // Night.
-  const action = await heuristicStrategy.nightAction(view);
+  const action = await strategy.nightAction(view);
   if (action) {
     await seat.nightAction(action.action, action.target);
     mark('acted', phaseTag);
@@ -125,7 +138,7 @@ async function pass() {
 
   if (seat.amWatcher()) {
     if (!(seat.state.watchEph || {})[g.phase_no]) {
-      const t = await heuristicStrategy.investigate(view);
+      const t = await strategy.investigate(view);
       if (t) await seat.submitWatch(t);
     }
     return;
@@ -133,7 +146,7 @@ async function pass() {
 
   if (seat.amInvestigator()) {
     if (!(seat.state.eph || {})[g.phase_no]) {
-      const t = await heuristicStrategy.investigate(view);
+      const t = await strategy.investigate(view);
       if (t) await seat.queueQuestion(t);
     }
     const answer = await seat.collectAnswer();
@@ -153,6 +166,13 @@ async function pass() {
       }
     }
   }
+}
+
+/* The strategy writes its notes into view.memory, and passInner returns early
+ * from half a dozen places -- so the persist has to happen on every exit rather
+ * than at the one point the happy path reaches. */
+async function pass() {
+  try { await passInner(); } finally { seat.save(); }
 }
 
 async function main() {

@@ -14,6 +14,10 @@
 #
 #   tests/play-game.sh [seats]        default 5
 #
+# SH_STRATEGY picks the decision layer every seat runs (default: deducing). It is
+# passed explicitly rather than left to run.mjs's default so that editing that
+# default mid-batch cannot silently change what a run was measuring.
+#
 # Needs php, node, mysql, and an account that can create its own test database.
 set -euo pipefail
 
@@ -66,7 +70,8 @@ d=json.load(open('$WORK/seats.json'))
 for s in d['seats']: print(s['name'], s['token'])
 " | while read -r name tok; do
     node "$ROOT/bot/run.mjs" --base "http://127.0.0.1:$PORT" --token "$tok" \
-      --game "$GAME" --state "$WORK/$name.json" --once --quiet 2>&1 \
+      --game "$GAME" --state "$WORK/$name.json" --strategy "${SH_STRATEGY:-deducing}" \
+      --once --quiet 2>&1 \
       | sed "s/^/    $name: /" || echo "    $name: PASS FAILED"
   done
 }
