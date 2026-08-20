@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Scumhouse — local client</title>
+<link rel="stylesheet" href="../public/css/style.css">
+</head>
+<body>
+
+<!--
+  Scumhouse, run from your own machine.
+
+  WHY THIS EXISTS. Everything else in this project protects you from an operator
+  who reads the database. It cannot protect you from one who rewrites the code,
+  because the page holding your keys came from them. The committed hash manifest
+  catches a change served to EVERYONE -- but the operator generates the integrity
+  attribute too, so they could serve good code to anyone checking and backdoored
+  code to you alone, and no monitor would see it.
+
+  Loading the client from a clone you made closes exactly that hole. The server
+  then only ever sees ciphertext and signed blobs, and has no way to hand YOU a
+  different implementation.
+
+  The scripts below are loaded from ../public/js/, i.e. from your own checkout.
+  Nothing on this page is fetched from the game server except the API calls the
+  client makes with your token.
+-->
+
+<header class="sh-top">
+  <span class="sh-brand">Scumhouse</span>
+  <nav>
+    <span class="sh-who" id="sh-local-who">local client</span>
+    <a href="#" id="sh-local-switch" hidden>Switch game</a>
+    <a href="#" id="sh-local-forget">Forget settings</a>
+  </nav>
+</header>
+
+<main>
+  <section id="sh-setup">
+    <h1>Run Scumhouse locally</h1>
+    <p class="sh-lede">You are running the client from your own copy of the source, so the
+    server cannot serve you a different one. It never sees your keys either way &mdash; this
+    removes its ability to target you specifically.</p>
+
+    <div id="sh-local-status" class="sh-status"></div>
+
+    <form class="sh-create" id="sh-local-form">
+      <label>Server
+        <input type="url" id="sh-local-base" placeholder="https://example.com/scumhouse" required>
+      </label>
+      <label>API token
+        <input type="password" id="sh-local-token" placeholder="from the server's Account page" required>
+      </label>
+      <button type="submit">Connect</button>
+    </form>
+
+    <p class="sh-hint">Create a token on the server under <strong>Account</strong>. It is
+    stored only in this browser, and you can revoke it there at any time.</p>
+
+    <div id="sh-local-games"></div>
+  </section>
+
+  <div id="sh-root"></div>
+</main>
+
+<footer class="sh-foot">
+  Running from your own checkout &middot;
+  <span id="sh-local-origin"></span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  const KEY = 'scumhouse/local-config';
+  const $ = (id) => document.getElementById(id);
+
+  const cfg = JSON.parse(localStorage.getItem(KEY) || 'null');
+  $('sh-local-origin').textContent = location.origin;
+
+  function note(msg, kind) {
+    const box = $('sh-local-status');
+    box.className = 'sh-status ' + (kind || '');
+    box.textContent = msg || '';
+  }
+
+  async function listGames(base, token) {
+    const res = await fetch(base.replace(/\/+$/, '') + '/api/games.php', {
+      credentials: 'omit',                       // cross-origin: token only, never cookies
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+    if (res.status === 401) throw new Error('That token was rejected. Create a new one on the server.');
+    if (!res.ok) throw new Error('Server returned ' + res.status + '. Check the address.');
+    return res.json();
+  }
+
+  function renderGames(base, token, data) {
+    const box = $('sh-local-games');
+    box.innerHTML = '<h2>Your games</h2>';
+    if (!data.games.length) {
+      box.insertAdjacentHTML('beforeend',
+        '<p class="sh-hint">No games yet. Join one from the hosted lobby, then come back.</p>');
+      return;
+    }
+    const ul = document.createElement('ul');
+    ul.className = 'sh-games';
+    for (const g of data.games) {
+      const li = document.createElement('li');
+      const label = g.status === 'active'
+        ? (g.phase === 'day' ? 'Day ' : 'Night ') + g.phase_no
+        : g.status;
+      li.innerHTML = '<span class="sh-game-id">#' + g.id + '</span>'
+        + '<span class="sh-game-size">' + g.seated + '/' + g.num_seats + '</span>'
+        + '<span class="sh-game-state">' + label + (g.alive ? '' : ' · dead') + '</span>';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = 'Open';
+      b.onclick = () => launch(base, token, g.id);
+      li.appendChild(b);
+      ul.appendChild(li);
+    }
+    box.appendChild(ul);
+  }
+
+  // Globals must be in place BEFORE the shared scripts load: game.js renders and
+  // starts polling the moment it is evaluated.
+  function launch(base, token, gameId) {
+    window.SH_APP_PATH = base.replace(/\/+$/, '');
+    window.SH_GAME_ID = gameId;
+    window.SH_API_TOKEN = token;
+
+    $('sh-setup').hidden = true;
+    $('sh-local-switch').hidden = false;
+    $('sh-local-who').textContent = 'table #' + gameId;
+
+    // Same files the hosted page uses, served from your checkout rather than
+    // from the game server.
+    for (const src of ['../public/js/crypto.js', '../public/js/game.js']) {
+      const el = document.createElement('script');
+      el.src = src;
+      el.async = false;               // crypto.js must finish before game.js runs
+      document.body.appendChild(el);
+    }
+  }
+
+  async function connect(base, token, quiet) {
+    try {
+      note('Contacting ' + base + '…');
+      const data = await listGames(base, token);
+      localStorage.setItem(KEY, JSON.stringify({ base: base, token: token }));
+      note('Connected.', 'ok');
+      renderGames(base, token, data);
+    } catch (e) {
+      note(e.message, 'error');
+      if (quiet) localStorage.removeItem(KEY);
+    }
+  }
+
+  $('sh-local-form').onsubmit = (ev) => {
+    ev.preventDefault();
+    connect($('sh-local-base').value.trim(), $('sh-local-token').value.trim(), false);
+  };
+
+  $('sh-local-forget').onclick = (ev) => {
+    ev.preventDefault();
+    localStorage.removeItem(KEY);
+    location.reload();
+  };
+  $('sh-local-switch').onclick = (ev) => { ev.preventDefault(); location.reload(); };
+
+  if (cfg && cfg.base && cfg.token) {
+    $('sh-local-base').value = cfg.base;
+    $('sh-local-token').value = cfg.token;
+    connect(cfg.base, cfg.token, true);
+  }
+})();
+</script>
+</body>
+</html>

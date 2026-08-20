@@ -4,7 +4,7 @@
  * having voted and is counted separately by sh_tally_votes(). */
 require_once __DIR__ . '/_boot.php';
 
-$user = require_login();
+$user = require_api_login();
 $in = sh_api_in();
 $gameId = (int) ($in['game'] ?? 0);
 [$game, $seat] = sh_require_seat($user, $gameId);

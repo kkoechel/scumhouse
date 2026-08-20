@@ -10,7 +10,7 @@
  */
 require_once __DIR__ . '/_boot.php';
 
-$user = require_login();
+$user = require_api_login();
 $in = sh_api_in();
 $gameId = (int) ($in['game'] ?? 0);
 [$game] = sh_require_seat($user, $gameId);

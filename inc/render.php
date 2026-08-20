@@ -55,6 +55,7 @@ function sh_head(string $title, array $user = null, array $extraScripts = []): v
     echo '</head><body><header class="sh-top"><a class="sh-brand" href="' . $app . '/lobby.php">Scumhouse</a>';
     echo '<nav><a href="' . $app . '/rules.php">Rules</a>';
     if ($user !== null) {
+        echo '<a href="' . APP_PATH . '/account.php">Account</a>';
         echo '<span class="sh-who">' . htmlspecialchars($user['display_name']) . '</span>';
         echo '<a href="' . $app . '/auth/logout.php">Log out</a>';
     }

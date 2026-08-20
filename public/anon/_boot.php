@@ -23,6 +23,31 @@ header('Content-Type: application/json');
 header('Cache-Control: no-store');
 header('Referrer-Policy: no-referrer');
 
+// CORS for clients this server does not host (PROTOCOL.md sec 8.1).
+//
+// Access-Control-Allow-Origin: * is safe here ONLY because there is deliberately
+// no Access-Control-Allow-Credentials. Without it a browser will not attach
+// cookies to a cross-origin request, so there are no ambient credentials for a
+// hostile page to ride on -- a locally-run client must present a bearer token,
+// which it can only have because its owner pasted it in.
+//
+// Never add Allow-Credentials here. Doing so alongside a wildcard origin is
+// rejected by browsers, and doing so with a reflected origin would hand every
+// site on the internet the ability to act as a logged-in player.
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Max-Age: 600');
+header('Vary: Origin');
+
+// Preflight, which carries no credentials and must be answered before any
+// authentication check.
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
+
+
 function sh_json_in(): array
 {
     $raw = file_get_contents('php://input');

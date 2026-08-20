@@ -22,11 +22,12 @@ request carrying no session. The server knows a mafia card went to "slot 3"; it 
 nothing that says slot 3 is you. The mafia's channel key is a Diffie-Hellman secret
 between two private keys that were generated in two browsers and never left them.
 
-**It does not hold against an operator who rewrites the code.** This page serves you the
-JavaScript that holds your keys. Section 8 is entirely about why that cannot be
-prevented, only made loud: the hash of every key-handling script is committed here and
-enforced by your browser, and `tools/monitor-integrity.sh` will tell you whether a live
-instance is serving what this repository publishes.
+**It does not hold against an operator who rewrites the code** — unless you stop them
+delivering it. The hash manifest catches a build swapped for *everyone*, but not one
+swapped for *you*: the operator generates the `integrity` attribute too. So there is a
+[local client](client/) — the same game, loaded from your own clone, authenticating with
+a revocable API token. The server then never delivers the code that holds your keys.
+Section 8 covers both halves honestly.
 
 **Your IP is still your IP.** Anonymous requests travel over a network. Section 7 says
 exactly what is and is not done about that.
@@ -116,6 +117,7 @@ confirming they fail.
     public/js/crypto.js client crypto -- the only file that ever sees a private key
     tools/integrity.sh  regenerates the committed script-hash manifest
     tools/prune.php     retention for finished games (dry run by default)
+    client/             the locally-run client -- read client/README.md first
 
 The game screen renders **client-side**, unlike the rest of the app. It has to: the server
 cannot render a card it is not allowed to know.
@@ -129,13 +131,14 @@ and flips are the permanent record and are never touched.
 
 ## Roadmap
 
-- **A locally-run or extension-delivered client**, the only way to take code delivery out
-  of the operator's hands. Until then, §8 is honest about what the hash manifest buys.
+- **A store-delivered browser extension.** Goes further than the local client — no clone
+  step, and it updates itself — at the cost of a developer account, store review and an
+  update channel to maintain. The local client needs none of those, which is why it
+  shipped first.
 
-Recently shipped: forced flips (§9.1), so a dead player can no longer stall the game by
-refusing to open their card -- and the players who decline to help are named by their
-absence. And submission jitter (§5.3), so automatic traffic stops arriving in a burst the
-moment a page loads.
+Recently shipped: the [local client](client/) (§8.1), forced flips (§9.1) so a dead
+player can no longer stall the game by refusing to open their card, and submission
+jitter (§5.3).
 
 ## Licence
 

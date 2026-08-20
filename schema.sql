@@ -477,6 +477,28 @@ CREATE TABLE IF NOT EXISTS sealed_role_table (
     FOREIGN KEY (game_id) REFERENCES games(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- API tokens, for clients that do not run on this server (PROTOCOL.md sec 8.1).
+--
+-- Stored HASHED. A token is shown to its owner exactly once, at creation; a
+-- database leak then yields no usable credential, the same reasoning that keeps
+-- magic-link tokens out of the clear.
+--
+-- These exist so a locally-run client can authenticate without a session cookie.
+-- That is what lets the API answer cross-origin requests with
+-- Access-Control-Allow-Origin: * -- there are no ambient credentials to abuse,
+-- because a browser will not attach cookies to a request it cannot send them on.
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    label VARCHAR(64) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME NULL,
+    revoked_at DATETIME NULL,
+    INDEX (user_id, revoked_at),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Standard bug-report table -- default inclusion for every game in this repo.
 -- NOTE: the snapshot is captured SERVER-side only. The client must never attach
 -- decrypted card state to a bug report, or a bug report becomes a role leak.

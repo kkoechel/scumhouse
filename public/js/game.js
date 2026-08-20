@@ -23,6 +23,80 @@
   const FLIP_INFO = 'scumhouse/flipshare/v1';
   const POLL_MS = 5000;
 
+  // The whole game screen, in one place. public/game.php and client/index.html
+  // both supply only <div id="sh-root">, so the hosted and locally-run clients
+  // cannot drift apart -- which they would within a release if each kept a copy.
+  const SHELL = `<div class="sh-head">
+  <h1 id="sh-phase">Loading...</h1>
+  <span id="sh-clock" class="sh-clock"></span>
+</div>
+<div id="sh-status" class="sh-status">Connecting...</div>
+
+<div class="sh-cols">
+  <section class="sh-main">
+    <div id="sh-card" class="sh-card"></div>
+
+    <h2>Town square</h2>
+    <div id="sh-thread" class="sh-thread"></div>
+    <div class="sh-composer">
+      <textarea id="sh-say-body" rows="3" placeholder="Say something to the whole table..."></textarea>
+      <button id="sh-say" type="button">Post</button>
+    </div>
+
+    <section id="sh-vote" class="sh-panel" hidden>
+      <h2>Vote to lynch</h2>
+      <p class="sh-hint">A strict majority ends the day at once. At the deadline the leader is
+      lynched; a tie is no lynch.</p>
+      <div class="sh-targets"></div>
+    </section>
+
+    <section id="sh-investigate" class="sh-panel" hidden>
+      <h2>Investigate</h2>
+      <p class="sh-hint" id="sh-investigate-label"></p>
+      <div class="sh-targets"></div>
+      <p class="sh-result" id="sh-investigate-result"></p>
+    </section>
+
+    <section id="sh-night" class="sh-panel" hidden>
+      <h2>Night action</h2>
+      <p class="sh-hint" id="sh-night-label"></p>
+      <div class="sh-targets"></div>
+    </section>
+  </section>
+
+  <aside class="sh-side">
+    <h2>Table</h2>
+    <ul id="sh-players" class="sh-players"></ul>
+
+    <section id="sh-team" class="sh-team" hidden>
+      <h2>Private channel</h2>
+      <p class="sh-hint">Encrypted in your browser to your partner's key. The server stores it
+      as fixed-size ciphertext it has no key for.</p>
+      <div id="sh-team-log" class="sh-team-log"></div>
+      <textarea id="sh-team-body" rows="3" placeholder="Only your partners can read this."></textarea>
+      <button id="sh-team-send" type="button">Send</button>
+    </section>
+
+    <section id="sh-recovery" class="sh-recovery" hidden>
+      <h2>Don't lose your keys</h2>
+      <p class="sh-hint">Your card lives only in this browser. Clear its storage and you are
+      out of the game. Copy this code somewhere safe.</p>
+      <textarea id="sh-recovery-code" rows="3" readonly></textarea>
+      <details>
+        <summary>Or store an encrypted backup on the server</summary>
+        <p class="sh-hint">Wrapped in your browser with a passphrase we never receive. Note the
+        trade-off: this is the one row that ties your account to your (encrypted) identity,
+        so a weak passphrase is a real risk. Optional on purpose.</p>
+        <input id="sh-backup-pass" type="password" placeholder="Passphrase (12+ characters)" autocomplete="new-password">
+        <button id="sh-backup-save" type="button">Store backup</button>
+      </details>
+      <button id="sh-restore-backup" type="button" hidden>Restore from server backup</button>
+      <button id="sh-restore-code" type="button">Restore from a recovery code</button>
+    </section>
+  </aside>
+</div>
+`;
+
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -42,11 +116,19 @@
 
   /* ---------- plumbing ---------- */
 
+  // A locally-run client authenticates with a bearer token and MUST NOT ask for
+  // cookies: it is cross-origin, and the API deliberately does not send
+  // Access-Control-Allow-Credentials, so a credentialed request would simply be
+  // refused by the browser. The hosted page has no token and uses its session.
+  const TOKEN = window.SH_API_TOKEN || null;
+
   async function api(path, body) {
+    const headers = body ? { 'Content-Type': 'application/json' } : {};
+    if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
     const res = await fetch(APP + '/api/' + path, {
       method: body ? 'POST' : 'GET',
-      credentials: 'include',
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      credentials: TOKEN ? 'omit' : 'include',
+      headers: headers,
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
@@ -1020,6 +1102,10 @@
     $('sh-restore-backup').onclick = restoreBackup;
     $('sh-restore-code').onclick = restoreFromCode;
   }
+
+  const root = document.getElementById('sh-root');
+  if (!root) throw new Error('no #sh-root to render into');
+  root.innerHTML = SHELL;
 
   wire();
   poll();

@@ -174,3 +174,71 @@ function is_allowed_email(string $email): bool
     $stmt->execute([$email]);
     return (bool) $stmt->fetchColumn();
 }
+
+/* ---------------- API tokens, for clients this server does not host ---------------- */
+
+/**
+ * Resolves a bearer token to a user, or null.
+ *
+ * Deliberately separate from the session path: a token authenticates an API
+ * request, never a browser page, and it must never be accepted from a cookie or
+ * a query string where a link could carry it somewhere it should not go.
+ */
+function user_for_bearer_token(): ?array
+{
+    $header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+    if (!preg_match('/^Bearer\s+([A-Za-z0-9_-]{32,128})$/', trim($header), $m)) {
+        return null;
+    }
+    // Compared by hash, so the stored value is useless if the table leaks.
+    $stmt = db()->prepare(
+        'SELECT u.id, u.email, u.display_name, t.id AS token_id
+           FROM api_tokens t JOIN users u ON u.id = t.user_id
+          WHERE t.token_hash = ? AND t.revoked_at IS NULL LIMIT 1'
+    );
+    $stmt->execute([hash('sha256', $m[1])]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        return null;
+    }
+    db()->prepare('UPDATE api_tokens SET last_used_at=NOW() WHERE id=?')->execute([$row['token_id']]);
+    return ['id' => (int) $row['id'], 'email' => $row['email'], 'display_name' => $row['display_name']];
+}
+
+/**
+ * Login for API endpoints: a bearer token OR an existing session.
+ *
+ * Token first, so a locally-run client never depends on cookie behaviour that
+ * differs across origins. Returns 401 as JSON rather than redirecting to the
+ * magic-link form, because an API client cannot follow that.
+ */
+function require_api_login(): array
+{
+    $user = user_for_bearer_token();
+    if ($user !== null) {
+        return $user;
+    }
+    $user = current_user();
+    if ($user === null) {
+        $ssoEmail = verify_sso_cookie();
+        if ($ssoEmail !== null && is_allowed_email($ssoEmail)) {
+            $user = provision_and_login($ssoEmail);
+        }
+    }
+    if ($user === null) {
+        header('Content-Type: application/json');
+        http_response_code(401);
+        echo json_encode(['ok' => false, 'error' => 'authentication required']);
+        exit;
+    }
+    return $user;
+}
+
+/** Creates a token and returns the plaintext ONCE. Never recoverable afterwards. */
+function issue_api_token(int $userId, ?string $label): string
+{
+    $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+    db()->prepare('INSERT INTO api_tokens (user_id, token_hash, label) VALUES (?,?,?)')
+        ->execute([$userId, hash('sha256', $token), $label !== '' ? $label : null]);
+    return $token;
+}

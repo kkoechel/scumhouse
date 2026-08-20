@@ -445,11 +445,46 @@ is doing.
 
 ### What is still true
 
-An operator can serve different bytes to different visitors, or to visitors who do not check.
-The honest claim is not "the code cannot be backdoored". It is: **a backdoor has to be
-published, or it has to survive somebody else's computer looking at it.** Nothing stronger is
-available without taking delivery out of the operator's hands entirely -- a browser extension
-or a locally-run client, which is on the roadmap and is not pretended to be shipped.
+An operator can serve different bytes to different visitors. The manifest does not stop
+this, and it is worth being precise about why: **the operator generates the `integrity`
+attribute as well as the file.** They can serve the published crypto to everyone who
+checks and a modified build to one player, and no monitor anywhere would see a
+discrepancy. A global swap is loud; a targeted one is silent.
+
+That is not fixable by hashing code the operator delivers. It is only fixable by not
+letting them deliver it.
+
+## 8.1 The locally-run client
+
+`client/index.html` is the same game, loaded from a clone the player made themselves.
+It authenticates with a revocable API token instead of a session cookie, so it can run
+from `http://localhost` without the API ever accepting ambient credentials.
+
+What that closes: the server cannot hand *this* player a different implementation,
+because it does not deliver the implementation at all. It sees only API calls carrying
+ciphertext and signed blobs. A player who wants certainty can hash their checkout against
+the repository and know exactly what is holding their keys.
+
+Two consequences worth stating rather than discovering:
+
+- **CORS is `Access-Control-Allow-Origin: *` with no `Allow-Credentials`, deliberately.**
+  The wildcard is safe *only* because of that omission: without it a browser will not
+  attach cookies to a cross-origin request, so there are no ambient credentials for a
+  hostile page to ride on. A local client must present a bearer token, which it can only
+  have because its owner pasted it in. Adding `Allow-Credentials` alongside a reflected
+  origin would hand every site on the internet the ability to act as a logged-in player.
+- **Browser storage is per-origin, so a local client starts with no identity.** A player
+  who registered on the hosted site must move theirs across with the recovery code, or
+  use the local client from the start of a game. This is a property of the browser, not
+  a bug, but it surprises people.
+
+What it does *not* change: the server still sees the player's IP and still knows which
+account they are. This is assurance about **which code holds the keys**, not anonymity.
+Sections 5.3 and 7 are unchanged.
+
+A store-delivered browser extension would go further -- it removes the clone step and
+updates itself -- and remains on the roadmap. The client here needs no store, no signing,
+no review and no update channel, which is why it came first.
 
 ## 9. Death, flips, and win conditions
 
