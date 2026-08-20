@@ -252,9 +252,16 @@ Two supporting details that are easy to get wrong:
 - **`answers.php` shuffles.** MySQL will happily return rows in insertion order, which would
   reconstruct exactly what the missing timestamp was meant to destroy.
 
-What remains: a passive observer at the network layer still sees requests arrive one at a
-time. That is the same floor as the IP address (section 7) and is not fixable from inside the
-application. The database, the backups and the logs no longer carry it.
+One thing the application *can* do about the network layer, and now does: every automatic
+submission is delayed by a random interval of up to four minutes rather than fired the
+instant a page loads. Cover traffic that all arrives together is not cover -- the player
+who stops to think stands out by arriving late. Spreading the automatic ones out means
+arrival order no longer tracks decision order.
+
+What remains after that: a passive observer at the network layer still sees requests arrive
+individually, and correlating them with a login session is not something the application can
+prevent. That is the same floor as the IP address (section 7). The database, the backups and
+the logs no longer carry it.
 
 The cost is a real usability constraint, stated plainly rather than hidden: **to investigate,
 you must open the game during the first half of the night.** A player who arrives later
@@ -454,14 +461,42 @@ Integrity checks available because the composition is public: the flipped roles 
 exceed the setup's counts, and every claimed slot must be one of the published slots with a
 valid signature. A player cannot flip a role they do not hold.
 
-**Known v1 weakness:** a player who tampers with their client can refuse to flip and stall
-the game. The flip is automatic, so refusing takes deliberate effort, and an admin can
-abandon the game -- but there is no cryptographic force-open in v1. The planned fix is to
-Shamir-share each card among all N players at deal time with threshold `N-1`, so the
-survivors can jointly open a refuser's card without any smaller coalition being able to
-open anyone's. Tracked in README's roadmap; not shipped.
+### 9.1 Forcing a flip
 
----
+A player who tampers with their client can die and simply refuse to open their card,
+stalling everyone. The clock stops, because the win check cannot count the mafia until
+every death is accounted for.
+
+So each player escrows their own flip at deal time:
+
+1. They seal their flip -- `{game, slot, user, role, sig}`, byte-identical to what they
+   would post voluntarily -- under a fresh key `K_flip`.
+2. `K_flip` is **Shamir-split across every slot** at threshold `N-1`, each share sealed
+   to that slot's public key.
+3. If they die and do not flip, and the phase deadline actually passes, every other
+   client opens its share in the clear. At `N-1` shares anyone can rebuild `K_flip`,
+   open the blob, and relay the flip -- the signature inside was made by the dead
+   player's own slot key, so it verifies exactly as a voluntary flip would.
+
+The server gates reveals rather than trusting clients to be polite: a share is refused
+while the subject is alive, refused once they have flipped, and refused before the
+deadline has passed. A slow player is not a refusing one.
+
+#### Why the threshold is N-1, and what that does not buy
+
+`N-1` means every *other* player must take part. A lower threshold would let a small
+coalition crack a **living** player's card, which is far worse than the problem being
+solved. At `N-1` the only coalition that can open a living card is everyone-but-them,
+who by section 1 already know that player's role by elimination.
+
+The honest limit: this does **not** guarantee the card opens. A dead mafia's partners can
+withhold their shares and stall the game anyway.
+
+What it does is make withholding **visible**. Reveals are public, so the players who did
+not help are named by their absence. A dead mafia's partners must choose between letting
+the flip through and identifying themselves. The mechanism does not remove the ability to
+stall; it prices it. That is a game-design judgement sitting inside a cryptographic
+feature, and it is deliberate rather than an oversight.
 
 ## 10. Key loss
 

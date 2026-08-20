@@ -250,6 +250,40 @@ $pdo->exec("UPDATE games SET key_release_at=DATE_SUB(NOW(),INTERVAL 1 MINUTE) WH
 [$code, $body] = post_json($port, '/anon/answers.php', ['game' => 1, 'night' => 1]);
 ok('answers open after the release point', ($body['released'] ?? false) === true);
 
+/* ---------- forced flips (PROTOCOL.md sec 9) ---------- */
+
+// user 2 (bob) is still alive at this point.
+$mkReveal = fn(int $slot, int $subject, string $share) => json_encode(
+    ['game' => 1, 'slot' => $slot, 'subject' => $subject, 'share' => $share], JSON_UNESCAPED_SLASHES
+);
+$share = '3:' . sh_b64u(random_bytes(32));
+
+[$code] = post_json($port, '/anon/reveal-share.php', ['game' => 1, 'slot' => 0, 'subject' => 2, 'share' => $share, 'sig' => sign_as($mafia, $mkReveal(0, 2, $share))]);
+ok('shares are NOT opened against a living player', $code === 403, "http $code");
+
+$pdo->exec("UPDATE game_players SET is_alive=0, died_phase_no=1, died_cause='kill' WHERE game_id=1 AND user_id=2");
+
+// Deadline is still in the future: a slow flip is not a refusal.
+[$code] = post_json($port, '/anon/reveal-share.php', ['game' => 1, 'slot' => 0, 'subject' => 2, 'share' => $share, 'sig' => sign_as($mafia, $mkReveal(0, 2, $share))]);
+ok('shares are withheld until the clock has actually stalled', $code === 409, "http $code");
+
+$pdo->exec("UPDATE games SET phase_ends_at=DATE_SUB(NOW(), INTERVAL 1 HOUR) WHERE id=1");
+
+[$code] = post_json($port, '/anon/reveal-share.php', ['game' => 1, 'slot' => 0, 'subject' => 2, 'share' => $share, 'sig' => sign_as($town, $mkReveal(0, 2, $share))]);
+ok('a reveal signed by the wrong slot is rejected', $code === 403, "http $code");
+
+[$code, $body] = post_json($port, '/anon/reveal-share.php', ['game' => 1, 'slot' => 0, 'subject' => 2, 'share' => $share, 'sig' => sign_as($mafia, $mkReveal(0, 2, $share))]);
+ok('a valid reveal is accepted once the game is genuinely stalled', $code === 200, "http $code");
+ok('...and reports the threshold', ($body['needed'] ?? 0) === 4, 'needed=' . ($body['needed'] ?? '?'));
+
+$bad = 'not-a-share';
+[$code] = post_json($port, '/anon/reveal-share.php', ['game' => 1, 'slot' => 1, 'subject' => 2, 'share' => $bad, 'sig' => sign_as($town, $mkReveal(1, 2, $bad))]);
+ok('a malformed share is rejected', $code === 400, "http $code");
+
+// user 1 already flipped earlier in this file.
+[$code] = post_json($port, '/anon/reveal-share.php', ['game' => 1, 'slot' => 0, 'subject' => 1, 'share' => $share, 'sig' => sign_as($mafia, $mkReveal(0, 1, $share))]);
+ok('no shares are opened against someone who already flipped', $code === 409, "http $code");
+
 /* ---------- teardown ---------- */
 
 if (is_resource($server)) {

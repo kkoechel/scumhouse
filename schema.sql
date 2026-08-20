@@ -240,6 +240,58 @@ CREATE TABLE IF NOT EXISTS flips (
     FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ---------------------------------------------------------------------------
+-- Forced flips (PROTOCOL.md sec 9).
+--
+-- A dead player who tampers with their client can refuse to open their card and
+-- stall the game for everyone. These three tables let the survivors open it
+-- without them -- and, just as importantly, make refusing to help VISIBLE.
+-- ---------------------------------------------------------------------------
+
+-- The player's own flip, sealed under a key they then split. Published while
+-- logged in, so the account label is server-attested exactly as the forward
+-- envelope's is.
+CREATE TABLE IF NOT EXISTS flip_blobs (
+    game_id INT NOT NULL,
+    user_id INT NOT NULL,
+    ciphertext TEXT NOT NULL,
+    PRIMARY KEY (game_id, user_id),
+    FOREIGN KEY (game_id) REFERENCES games(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- One Shamir share of that key per slot, each sealed to that slot's public key.
+-- Threshold is num_seats-1, so every OTHER player must take part: no smaller
+-- coalition can open a living player's card, and the ones who could already know
+-- everything by elimination anyway (PROTOCOL.md sec 1).
+CREATE TABLE IF NOT EXISTS flip_shares (
+    game_id INT NOT NULL,
+    subject_user_id INT NOT NULL,
+    holder_slot TINYINT NOT NULL,
+    ciphertext TEXT NOT NULL,
+    PRIMARY KEY (game_id, subject_user_id, holder_slot),
+    FOREIGN KEY (game_id) REFERENCES games(id),
+    FOREIGN KEY (subject_user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Shares opened in the clear once a dead player has failed to flip and the clock
+-- has actually stalled. Posted ANONYMOUSLY and signed by the holding slot -- a
+-- logged-in reveal would hand the server account->slot for every helper.
+--
+-- These rows are public on purpose. Whoever withholds is visible by their
+-- absence, so a dead mafia's partners must choose between letting the flip
+-- through and identifying themselves.
+CREATE TABLE IF NOT EXISTS flip_share_reveals (
+    game_id INT NOT NULL,
+    subject_user_id INT NOT NULL,
+    holder_slot TINYINT NOT NULL,
+    share VARCHAR(128) NOT NULL,
+    revealed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (game_id, subject_user_id, holder_slot),
+    FOREIGN KEY (game_id) REFERENCES games(id),
+    FOREIGN KEY (subject_user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Opt-in, password-wrapped backup of a player's two private keys, for the
 -- "I cleared my browser mid-game" case. PBKDF2-SHA256 600k, wrapped client-side;
 -- the password never reaches the server.

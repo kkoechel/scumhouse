@@ -71,5 +71,9 @@ js_step  batchcollect  # we open exactly ours and learn nothing about the rest
 # The reverse envelope: slot -> account, for the watcher.
 js_step  reverse       # two signatures replace the attested account label
 
+# Forced flips: the threshold has to be exactly what it claims, or a coalition
+# smaller than the whole table could crack a living player's card.
+js_step  shamir        # every T-subset reconstructs, every T-1 subset fails
+
 echo
 echo "interop: ALL STEPS PASSED"

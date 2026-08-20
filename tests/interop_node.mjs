@@ -283,3 +283,70 @@ if (step === 'reverse') {
 
   console.log('reverse: ok (both signatures required, both locks required)');
 }
+
+/* ---- Shamir secret sharing (PROTOCOL.md sec 9) ----
+ * Pure client-side, but the forced-flip mechanism is worthless if the threshold
+ * is not exactly what it claims, so it gets exhaustive treatment. */
+
+if (step === 'shamir') {
+  const enc2 = new TextEncoder();
+  const secret = SH.randomBytes(32);
+
+  // The real parameters: 10 players, threshold N-1.
+  const N = 10, T = 9;
+  const shares = SH.shamirSplit(secret, N, T);
+  if (shares.length !== N) throw new Error('wrong share count');
+  if (shares.some((s) => s.y.length !== 32)) throw new Error('share length != secret length');
+
+  const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+
+  // Exactly T shares must reconstruct -- every T-sized subset, not just one.
+  let subsets = 0;
+  for (let drop = 0; drop < N; drop++) {
+    const subset = shares.filter((_, i) => i !== drop);
+    if (!eq(SH.shamirCombine(subset), secret)) throw new Error('T shares failed to reconstruct (dropped ' + drop + ')');
+    subsets++;
+  }
+  if (subsets !== N) throw new Error('did not cover every subset');
+
+  // More than T also works.
+  if (!eq(SH.shamirCombine(shares), secret)) throw new Error('all N shares failed');
+
+  // FEWER than T must NOT reconstruct. This is the whole security property: if
+  // T-1 sufficed, any N-2 players could crack a living player's card.
+  for (let trial = 0; trial < 20; trial++) {
+    const subset = shares.slice().sort(() => (trial % 2 ? 1 : -1)).slice(0, T - 1);
+    if (eq(SH.shamirCombine(subset), secret)) throw new Error('T-1 shares reconstructed the secret');
+  }
+  const fewer = SH.shamirCombine(shares.slice(0, 2));
+  if (eq(fewer, secret)) throw new Error('2 shares reconstructed the secret');
+
+  // Serialisation round-trip, since shares travel as strings.
+  const round = shares.map((s) => SH.shareFromB64(SH.shareToB64(s)));
+  if (!eq(SH.shamirCombine(round.slice(0, T)), secret)) throw new Error('serialised shares failed');
+
+  // Duplicate x-coordinates must be refused, not silently interpolated.
+  let refused = false;
+  try { SH.shamirCombine([round[0], round[0], round[1]]); } catch (e) { refused = true; }
+  if (!refused) throw new Error('duplicate x-coordinates were accepted');
+
+  // Every table size the game actually uses.
+  for (const n of [5, 6, 7, 8, 9, 10]) {
+    const sec = SH.randomBytes(32);
+    const sh = SH.shamirSplit(sec, n, n - 1);
+    if (!eq(SH.shamirCombine(sh.slice(0, n - 1)), sec)) throw new Error('n=' + n + ' failed at threshold');
+    if (eq(SH.shamirCombine(sh.slice(0, n - 2)), sec)) throw new Error('n=' + n + ' leaked below threshold');
+  }
+
+  // And it must actually carry a real AES key end to end.
+  const key = SH.randomAesKey();
+  const keyBytes = SH.unb64u(key);
+  const ks = SH.shamirSplit(keyBytes, 7, 6);
+  const recovered = SH.b64u(SH.shamirCombine(ks.slice(1, 7)));
+  if (recovered !== key) throw new Error('AES key did not survive the round trip');
+  const blob = await SH.innerSeal(recovered, { hello: 'flip' });
+  const opened = await SH.innerOpen(key, blob);
+  if (opened.hello !== 'flip') throw new Error('recovered key did not decrypt');
+
+  console.log('shamir: ok (every T-subset reconstructs, every T-1 subset fails, n=5..10)');
+}

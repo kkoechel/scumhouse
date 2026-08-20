@@ -128,6 +128,17 @@ and knows one of them mattered, without being able to tell which. And you have t
 game in the first half of the night to investigate at all &mdash; that one is a real
 inconvenience, not a cryptographic subtlety.</p>
 
+<h3>If someone refuses to show their card</h3>
+<p>When you die, your browser opens your card automatically. A player who tampers with
+theirs could refuse &mdash; and the whole game would stop, because nobody can count the
+mafia until every death is accounted for.</p>
+<p>So each card is also escrowed at the start, locked with a key split into pieces and
+handed out one per player. If someone dies and does not show their card once the deadline
+passes, everyone else opens their piece, and the card opens without them.</p>
+<p>It takes every other player to do it, which means a dead mafia&rsquo;s partners can
+still refuse and stall. But refusing is public: whoever does not hand over their piece is
+visible to everyone. You cannot block a card quietly.</p>
+
 <h3>If you lose your keys</h3>
 <p>Your card lives in your browser's local storage. Clear it and your card is gone -- there
 is no copy anywhere else, by design. The game screen shows a recovery code the moment your

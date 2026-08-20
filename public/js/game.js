@@ -20,6 +20,7 @@
   const TRACK_INFO = 'scumhouse/trackreport/v1';
   const WATCH_INFO = 'scumhouse/watchreport/v1';
   const REVERSE_INFO = 'scumhouse/reverse/v1';
+  const FLIP_INFO = 'scumhouse/flipshare/v1';
   const POLL_MS = 5000;
 
   const $ = (id) => document.getElementById(id);
@@ -513,6 +514,90 @@
     }
   }
 
+  /* ---------- forced flips (PROTOCOL.md sec 9) ---------- */
+
+  // Published once: this player's own flip, sealed under a key Shamir-split among
+  // every slot at threshold N-1. If they later die and refuse to open their card,
+  // the other players can open it without them.
+  async function ensureFlipEscrow(feed) {
+    if (!card || feed.my_flip_escrowed) return;
+    if (!feed.slots || feed.slots.length !== feed.game.num_seats) return;
+
+    // Byte-identical to what autoFlip() signs, so a reconstructed flip can be
+    // relayed to /anon/flip.php by anyone and still verify.
+    const claim = JSON.stringify({ game: GAME_ID, slot: card.slot, user: feed.me, role: card.role });
+    const payload = {
+      game: GAME_ID, slot: card.slot, user: feed.me, role: card.role,
+      sig: await SH.signAnon(identity.sigkPriv, claim),
+    };
+    const key = SH.randomAesKey();
+    const blob = await SH.innerSeal(key, payload);
+
+    const threshold = feed.game.num_seats - 1;
+    const parts = SH.shamirSplit(SH.unb64u(key), feed.game.num_seats, threshold);
+
+    const shares = {};
+    for (let i = 0; i < feed.slots.length; i++) {
+      const slot = feed.slots[i];
+      shares[Number(slot.slot_index)] = await SH.eciesSeal(
+        slot.idk_pub, { share: SH.shareToB64(parts[i]) }, FLIP_INFO
+      );
+    }
+    await api('flip-escrow.php', { game: GAME_ID, blob: blob, shares: shares });
+  }
+
+  // Opens our share of a dead player's flip key. Only once the server agrees the
+  // clock has actually stalled -- a slow flip is not a refusal.
+  async function maybeRevealShares(feed) {
+    if (!card || !feed.pending_flips.length) return;
+    if (feed.game.phase_ends_at && new Date(feed.game.phase_ends_at.replace(' ', 'T') + 'Z') > Date.now()) return;
+
+    for (const pending of feed.pending_flips) {
+      const subject = Number(pending.user_id);
+      if (subject === feed.me) continue;  // the refuser does not vote to open themselves
+      if ((feed.flip_reveals || []).some((r) => Number(r.subject_user_id) === subject && Number(r.holder_slot) === card.slot)) continue;
+
+      const mine = (feed.flip_shares || []).find(
+        (x) => Number(x.subject_user_id) === subject && Number(x.holder_slot) === card.slot
+      );
+      if (!mine) continue;
+      try {
+        const opened = await SH.eciesOpen(mine.ciphertext, identity.idkPriv, FLIP_INFO);
+        const sigPayload = JSON.stringify({ game: GAME_ID, slot: card.slot, subject: subject, share: opened.share });
+        const sig = await SH.signAnon(identity.sigkPriv, sigPayload);
+        await SH.anonPost(APP + '/anon/reveal-share.php', {
+          game: GAME_ID, slot: card.slot, subject: subject, share: opened.share, sig: sig,
+        });
+        note('Opened your share of ' + nameOf(subject) + "'s card. It needs "
+             + (feed.game.num_seats - 1) + ' of them.', 'warn');
+      } catch (e) { /* not ours to open, or already open */ }
+    }
+  }
+
+  // Once enough shares are public, anyone can rebuild the key and relay the flip.
+  async function maybeForceFlip(feed) {
+    const threshold = feed.game.num_seats - 1;
+    for (const pending of feed.pending_flips) {
+      const subject = Number(pending.user_id);
+      const reveals = (feed.flip_reveals || []).filter((r) => Number(r.subject_user_id) === subject);
+      if (reveals.length < threshold) continue;
+      const blobRow = (feed.flip_blobs || []).find((b) => Number(b.user_id) === subject);
+      if (!blobRow) continue;
+      try {
+        const key = SH.b64u(SH.shamirCombine(reveals.slice(0, threshold).map((r) => SH.shareFromB64(r.share))));
+        // If too few or wrong shares were combined this throws on the auth tag
+        // rather than yielding a plausible-looking wrong card.
+        const payload = await SH.innerOpen(key, blobRow.ciphertext);
+        await SH.anonPost(APP + '/anon/flip.php', {
+          game: GAME_ID, slot: payload.slot, user: payload.user, role: payload.role, sig: payload.sig,
+        });
+        note(nameOf(subject) + "'s card was opened by the table: " + payload.role + '.', 'ok');
+        await poll();
+        return;
+      } catch (e) { /* not enough valid shares yet */ }
+    }
+  }
+
   /* ---------- death flip (PROTOCOL.md sec 9) ---------- */
 
   async function autoFlip(feed) {
@@ -529,6 +614,19 @@
   }
 
   /* ---------- rendering ---------- */
+
+  // Cover traffic that all arrives the instant a page loads is not cover: the
+  // player who stops to think stands out by arriving late. Spreading every
+  // automatic submission over a random slice of the window makes arrival order
+  // stop tracking decision order. It does not fix the network layer -- see
+  // PROTOCOL.md sec 5.3 -- but it costs nothing and removes the easy signal.
+  const jitterDone = new Set();
+  function afterJitter(tag, maxMs, fn) {
+    if (jitterDone.has(tag)) return;
+    jitterDone.add(tag);
+    setTimeout(() => { fn().catch(() => jitterDone.delete(tag)); },
+               Math.floor(Math.random() * maxMs));
+  }
 
   function isAlive(userId) {
     const p = state.players.find((x) => x.user_id === userId);
@@ -861,16 +959,20 @@
           await autoFlip(feed);
           if (feed.game.status === 'active') {
             await ensureEnvelopes(feed);
+            await ensureFlipEscrow(feed);
             await ensureAccountKey(feed);
             await ensureReverseEnvelope(feed);
             await ensureRoleTable(feed);
-            await postCover();
+            afterJitter('cov' + feed.game.phase + feed.game.phase_no, 240000, () => postCover());
             if (feed.game.phase === 'night') {
-              await queueCoverQuestion(feed);
+              // Up to 4 minutes of spread, well inside the shortest half-night.
+              afterJitter('tok' + feed.game.phase_no, 240000, () => queueCoverQuestion(feed));
               await collectAnswer(feed);
             }
             await readTrackerReports(feed);
             await readWatcherReports(feed);
+            await maybeRevealShares(feed);
+            await maybeForceFlip(feed);
           }
         }
       }

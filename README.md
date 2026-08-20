@@ -131,13 +131,11 @@ and flips are the permanent record and are never touched.
 
 - **A locally-run or extension-delivered client**, the only way to take code delivery out
   of the operator's hands. Until then, §8 is honest about what the hash manifest buys.
-- **Forced flips.** A dead player who tampers with their client can refuse to open their
-  card and stall the game (§9). The fix is to Shamir-share each card at deal time with
-  threshold N-1, so survivors can jointly open a refuser's while no smaller coalition can
-  open anyone's.
-- **Closing the last retrieval timing signal.** The database no longer records when a
-  question was asked, but a passive network observer still sees requests arrive
-  individually (§5.3).
+
+Recently shipped: forced flips (§9.1), so a dead player can no longer stall the game by
+refusing to open their card -- and the players who decline to help are named by their
+absence. And submission jitter (§5.3), so automatic traffic stops arriving in a burst the
+moment a page loads.
 
 ## Licence
 

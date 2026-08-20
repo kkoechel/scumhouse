@@ -77,6 +77,24 @@ $stmt = db()->prepare('SELECT slot_index, night_no, ciphertext FROM watcher_repo
 $stmt->execute([$gameId]);
 $watcherReports = $stmt->fetchAll();
 
+// Forced-flip escrow. All opaque without a slot private key, so shipping it to
+// everyone costs nothing and lets any client reconstruct once enough shares open.
+$stmt = db()->prepare('SELECT user_id, ciphertext FROM flip_blobs WHERE game_id=?');
+$stmt->execute([$gameId]);
+$flipBlobs = $stmt->fetchAll();
+
+$stmt = db()->prepare('SELECT subject_user_id, holder_slot, ciphertext FROM flip_shares WHERE game_id=?');
+$stmt->execute([$gameId]);
+$flipShares = $stmt->fetchAll();
+
+$stmt = db()->prepare('SELECT subject_user_id, holder_slot, share FROM flip_share_reveals WHERE game_id=?');
+$stmt->execute([$gameId]);
+$flipReveals = $stmt->fetchAll();
+
+$stmt = db()->prepare('SELECT 1 FROM flip_blobs WHERE game_id=? AND user_id=?');
+$stmt->execute([$gameId, $user['id']]);
+$myFlipEscrowed = (bool) $stmt->fetchColumn();
+
 $stmt = db()->prepare('SELECT 1 FROM account_keys WHERE game_id=? AND user_id=?');
 $stmt->execute([$gameId, $user['id']]);
 $myAccountKeyPublished = (bool) $stmt->fetchColumn();
@@ -128,6 +146,10 @@ sh_api_out([
     'account_keys' => $accountKeys,
     'watcher_reports' => $watcherReports,
     'my_account_key_published' => $myAccountKeyPublished,
+    'flip_blobs' => $flipBlobs,
+    'flip_shares' => $flipShares,
+    'flip_reveals' => $flipReveals,
+    'my_flip_escrowed' => $myFlipEscrowed,
     'pending_flips' => sh_pending_flips($gameId),
     'key_backup' => $backup === false ? null : $backup,
 ]);

@@ -354,6 +354,104 @@
     return JSON.stringify({ t: 'scumhouse/retrieval/v1', game: gameId, night: nightNo, nonce: nonce });
   }
 
+
+  /* ---------- Shamir secret sharing over GF(256) (PROTOCOL.md sec 9) ---------- */
+
+  // Used to force open the card of a dead player who will not open it themselves.
+  // Byte-wise: a 32-byte secret is 32 independent sharings sharing one x-coordinate
+  // per holder, which is the standard construction and keeps every share the same
+  // length as the secret.
+  //
+  // GF(256) with the AES polynomial 0x11b. Tables are built once; the field is far
+  // too small for timing to matter here and the values are not secret anyway --
+  // what is secret is the polynomial's constant term.
+  const GF_EXP = new Uint8Array(512);
+  const GF_LOG = new Uint8Array(256);
+  (function buildTables() {
+    let x = 1;
+    for (let i = 0; i < 255; i++) {
+      GF_EXP[i] = x;
+      GF_LOG[x] = i;
+      x ^= (x << 1) ^ ((x & 0x80) ? 0x11b : 0);
+      x &= 0xff;
+    }
+    for (let i = 255; i < 512; i++) GF_EXP[i] = GF_EXP[i - 255];
+  })();
+
+  function gfMul(a, b) {
+    if (a === 0 || b === 0) return 0;
+    return GF_EXP[GF_LOG[a] + GF_LOG[b]];
+  }
+
+  function gfDiv(a, b) {
+    if (b === 0) throw new Error('division by zero in GF(256)');
+    if (a === 0) return 0;
+    return GF_EXP[GF_LOG[a] + 255 - GF_LOG[b]];
+  }
+
+  /**
+   * Splits `secret` (Uint8Array) into `n` shares, `threshold` of which reconstruct
+   * it. Share x-coordinates are 1..n; 0 is reserved for the secret itself.
+   *
+   * Returns an array of {x, y} where y is a Uint8Array the same length as secret.
+   */
+  function shamirSplit(secret, n, threshold) {
+    if (threshold < 2 || threshold > n || n > 255) {
+      throw new Error('bad shamir parameters');
+    }
+    const shares = [];
+    for (let x = 1; x <= n; x++) shares.push({ x: x, y: new Uint8Array(secret.length) });
+
+    for (let byte = 0; byte < secret.length; byte++) {
+      // Random coefficients for terms 1..threshold-1; constant term is the secret.
+      const coeffs = randomBytes(threshold - 1);
+      for (const share of shares) {
+        let acc = 0;
+        // Horner from the highest coefficient down to the secret byte.
+        for (let k = threshold - 2; k >= 0; k--) acc = gfMul(acc, share.x) ^ coeffs[k];
+        acc = gfMul(acc, share.x) ^ secret[byte];
+        share.y[byte] = acc;
+      }
+    }
+    return shares;
+  }
+
+  /** Lagrange interpolation at x=0. Needs at least `threshold` distinct shares;
+   * fewer yields a wrong value rather than an error, which is why the recovered
+   * secret is always checked by using it (AES-GCM either authenticates or does not). */
+  function shamirCombine(shares) {
+    if (!shares.length) throw new Error('no shares');
+    const len = shares[0].y.length;
+    const out = new Uint8Array(len);
+    const xs = shares.map((s) => s.x);
+    if (new Set(xs).size !== xs.length) throw new Error('duplicate share x-coordinates');
+
+    for (let byte = 0; byte < len; byte++) {
+      let acc = 0;
+      for (let i = 0; i < shares.length; i++) {
+        let num = 1, den = 1;
+        for (let j = 0; j < shares.length; j++) {
+          if (i === j) continue;
+          num = gfMul(num, xs[j]);
+          den = gfMul(den, xs[i] ^ xs[j]);
+        }
+        acc ^= gfMul(shares[i].y[byte], gfDiv(num, den));
+      }
+      out[byte] = acc;
+    }
+    return out;
+  }
+
+  function shareToB64(share) {
+    return share.x + ':' + b64u(share.y);
+  }
+
+  function shareFromB64(str) {
+    const i = str.indexOf(':');
+    if (i < 1) throw new Error('malformed share');
+    return { x: parseInt(str.slice(0, i), 10), y: unb64u(str.slice(i + 1)) };
+  }
+
   /* ---------- signing ---------- */
 
   async function signAnon(sigkPrivJwk, payloadString) {
@@ -440,6 +538,7 @@
     blindCredential, unblindCredential,
     eciesOpen, eciesSeal, pairKey,
     ephemeralKeyPair, randomAesKey, innerSeal, innerOpen, tokenMessage,
+    shamirSplit, shamirCombine, shareToB64, shareFromB64,
     sealBlobs, openBlob, coverBlob,
     signAnon, verifyAnon,
     saveIdentity, loadIdentity, recoveryCode, fromRecoveryCode,
