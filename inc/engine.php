@@ -30,10 +30,10 @@ function sh_setup(int $numSeats): array
     $table = [
         5 => ['MAFIA' => 1, 'COP' => 1, 'DOCTOR' => 0, 'VIGILANTE' => 0, 'ROLEBLOCKER' => 0, 'TRACKER' => 0, 'TOWN' => 3],
         6 => ['MAFIA' => 1, 'COP' => 1, 'DOCTOR' => 1, 'VIGILANTE' => 0, 'ROLEBLOCKER' => 0, 'TRACKER' => 0, 'TOWN' => 3],
-        7 => ['MAFIA' => 2, 'COP' => 1, 'DOCTOR' => 1, 'VIGILANTE' => 0, 'ROLEBLOCKER' => 0, 'TRACKER' => 0, 'TOWN' => 3],
+        7 => ['MAFIA' => 2, 'COP' => 1, 'DOCTOR' => 1, 'VIGILANTE' => 0, 'ROLEBLOCKER' => 1, 'TRACKER' => 0, 'TOWN' => 2],
         8 => ['MAFIA' => 2, 'COP' => 1, 'DOCTOR' => 1, 'VIGILANTE' => 1, 'ROLEBLOCKER' => 0, 'TRACKER' => 0, 'TOWN' => 3],
-        9 => ['MAFIA' => 3, 'COP' => 1, 'DOCTOR' => 1, 'VIGILANTE' => 0, 'ROLEBLOCKER' => 1, 'TRACKER' => 0, 'WATCHER' => 0, 'TOWN' => 3],
-        10 => ['MAFIA' => 3, 'COP' => 1, 'DOCTOR' => 1, 'VIGILANTE' => 0, 'ROLEBLOCKER' => 0, 'TRACKER' => 1, 'WATCHER' => 1, 'TOWN' => 3],
+        9 => ['MAFIA' => 2, 'COP' => 1, 'DOCTOR' => 1, 'VIGILANTE' => 0, 'ROLEBLOCKER' => 1, 'TRACKER' => 0, 'WATCHER' => 0, 'TOWN' => 4],
+        10 => ['MAFIA' => 2, 'COP' => 1, 'DOCTOR' => 1, 'VIGILANTE' => 0, 'ROLEBLOCKER' => 0, 'TRACKER' => 1, 'WATCHER' => 1, 'TOWN' => 4],
     ];
     foreach ($table as $n => &$setup) {
         // Every setup must name every role, so nothing silently reads as absent
@@ -223,9 +223,15 @@ function sh_tally_votes(array $votes, int $livingCount): array
  * That is exact as long as every death is flipped -- which is why a pending flip
  * blocks phase advancement (PROTOCOL.md sec 9).
  */
-function sh_check_winner(int $numSeats, int $livingCount, int $flippedMafia): ?string
+function sh_check_winner(int $numSeats, int $livingCount, int $flippedMafia, ?int $mafiaTotal = null): ?string
 {
-    $mafiaTotal = sh_setup($numSeats)['MAFIA'];
+    // Prefer the composition this game was DEALT from, which the caller reads
+    // out of games.setup_json. The table below is edited from time to time to
+    // rebalance, and a game in flight must keep being judged by the deal it
+    // actually got -- otherwise editing the table silently changes the win
+    // condition of every live game, and the clients (which are shown
+    // setup_json) and the server would be counting different mafia.
+    $mafiaTotal = $mafiaTotal ?? sh_setup($numSeats)['MAFIA'];
     $livingMafia = $mafiaTotal - $flippedMafia;
 
     if ($livingMafia <= 0) {

@@ -365,10 +365,13 @@ function sh_end_night(int $gameId): void
 function sh_finish_if_over(int $gameId): bool
 {
     $game = sh_game($gameId);
+    // The composition this game was dealt from, not today's table.
+    $dealt = json_decode($game['setup_json'], true);
     $winner = sh_check_winner(
         (int) $game['num_seats'],
         count(sh_living($gameId)),
-        sh_flipped_mafia($gameId)
+        sh_flipped_mafia($gameId),
+        isset($dealt['MAFIA']) ? (int) $dealt['MAFIA'] : null
     );
     if ($winner === null) {
         return false;
