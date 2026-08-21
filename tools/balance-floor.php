@@ -34,7 +34,7 @@ mt_srand(20260820);
  * between the two columns is the entire value of agreeing, with the quality of
  * the choice held fixed.
  */
-function play(int $n, bool $consolidated = false): string
+function play(int $n, bool $consolidated = false, ?array &$stats = null): string
 {
     $roles = sh_setup_role_list($n);
     shuffle($roles);
@@ -62,7 +62,13 @@ function play(int $n, bool $consolidated = false): string
             $lynch = $t['hammered'] ? $t['leader'] : $t['deadline_lynch'];
             if ($lynch !== null) {
                 $alive = array_values(array_diff($alive, [$lynch]));
+                if ($stats !== null) {
+                    $stats['lynches']++;
+                    if ($role[$lynch] === 'MAFIA') $stats['hits']++;
+                }
                 if ($role[$lynch] === 'MAFIA') $deadMafia++;
+            } elseif ($stats !== null) {
+                $stats['nolynch']++;
             }
         }
         $w = sh_check_winner($n, count($alive), $deadMafia);
@@ -103,15 +109,30 @@ function play(int $n, bool $consolidated = false): string
 }
 
 printf("random-play floor, %d games per seat count\n\n", $games);
+$acc = [];
 printf("%-6s %-46s %-11s %-13s %s\n", 'seats', 'composition', 'mafia% (scattered)', 'mafia% (agreed)', 'agreeing gains town');
 foreach ([5, 6, 7, 8, 9, 10] as $n) {
     $ms = 0; $mc = 0;
-    for ($i = 0; $i < $games; $i++) if (play($n, false) === 'MAFIA') $ms++;
+    $st = ['lynches' => 0, 'hits' => 0, 'nolynch' => 0];
+    for ($i = 0; $i < $games; $i++) if (play($n, false, $st) === 'MAFIA') $ms++;
     for ($i = 0; $i < $games; $i++) if (play($n, true) === 'MAFIA') $mc++;
+    $acc[$n] = $st;
     $setup = array_filter(sh_setup($n));
     $desc = [];
     foreach ($setup as $r => $c) $desc[] = "$c " . strtolower($r);
     printf("%-6d %-46s %-18.1f %-15.1f %+.1f pp\n",
         $n, implode(', ', $desc), 100 * $ms / $games, 100 * $mc / $games,
         100 * ($ms - $mc) / $games);
+}
+
+/* The number a strategy has to beat. A town choosing at random still finds a
+ * mafia this often, simply because some of the people it can pick are mafia.
+ * Scoring BELOW this line does not mean a strategy is merely weak -- it means
+ * something is steering the vote away from the mafia, and the obvious candidate
+ * is the mafia, who vote too. */
+echo "\nrandom lynch accuracy (the line a strategy must beat)\n\n";
+printf("%-6s %-10s %-12s %s\n", 'seats', 'lynches', 'hit mafia', 'no-lynch days');
+foreach ($acc as $n => $st) {
+    printf("%-6d %-10d %-12s %d\n", $n, $st['lynches'],
+        sprintf('%.1f%%', $st['lynches'] ? 100 * $st['hits'] / $st['lynches'] : 0), $st['nolynch']);
 }
