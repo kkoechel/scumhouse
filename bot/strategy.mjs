@@ -384,13 +384,30 @@ export const deducingStrategy = {
     const best = tableOrder(view, score).find((p) => allowed.has(p.user_id)) || candidates[0];
     const leader = voteLeader(view, candidates);
 
-    // Consolidate. Abandoning a standing plurality to chase a hunch is how a
-    // town talks itself into a no-lynch, so only break from it when the
-    // evidence is worth more than the split costs.
-    if (leader && leader.id !== best.user_id) {
-      const gain = (score[best.user_id] || 0) - (score[leader.id] || 0);
-      if (gain < 2) return leader.id;
-    }
+    // Consolidate on the table order, NOT on the standing plurality.
+    //
+    // Following the plurality looks like the same thing and is not. The mafia
+    // vote too, and they vote as a bloc for free, because each of them simply
+    // excludes its own partners -- so whoever is ahead early may be ahead
+    // because they chose it, and a town that follows is doing their counting.
+    // tools/vote-rule.php puts a number on it: against a bloc that moves first,
+    // a plurality-following town lynches a mafia 0.0% of the time and loses
+    // 95-100% of games, while agreeing on a shared arbitrary target restores
+    // 27.8-39.9% accuracy and moves the win rate by 11 to 47 points.
+    //
+    // Honest scope: that gap does NOT show up in tests/play-game.sh, and the
+    // measured accuracies there are 24.4% (heuristic) against 34.0% (this),
+    // p=0.16 over 190 lynches. The harness has every seat act in the same pass,
+    // so on the first pass of a day there are no votes to see and this branch
+    // barely runs. A real forum game is staggered -- people arrive over 48
+    // hours and DO see standing votes -- which is the case vote-rule.php models
+    // and the harness cannot. So this is chosen on the model, not on the bot
+    // measurement, and that is a judgement rather than a demonstration.
+    //
+    // tableOrder is derived from data every seat shares and no player chooses.
+    // Join the plurality only where evidence already points at it.
+    const leaderScore = leader ? (score[leader.id] || 0) : 0;
+    if (leader && leaderScore > 0 && leaderScore >= (score[best.user_id] || 0)) return leader.id;
     return best.user_id;
   },
 
