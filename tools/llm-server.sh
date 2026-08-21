@@ -19,6 +19,19 @@ BIN="${SH_LLM_BIN:-$HOME/.local/src/llama.cpp/build/bin/llama-server}"
 MODEL="${SH_LLM_MODEL:-$HOME/.local/share/models/qwen2.5-3b-instruct-q4_k_m.gguf}"
 PORT="${SH_LLM_PORT:-8080}"
 
+# llama-server defaults to CORS "*" with no auth. Loopback keeps other machines
+# out, but it does NOT keep out a web page you happen to be visiting: that page
+# can POST to 127.0.0.1 from your own browser, and allow-all CORS lets it read
+# the reply. A key it cannot know closes that. Generated once, kept 0600.
+KEYFILE="${SH_LLM_KEYFILE:-$HOME/.local/share/models/.scumhouse-llm-key}"
+if [ ! -s "$KEYFILE" ]; then
+  mkdir -p "$(dirname "$KEYFILE")"
+  head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$KEYFILE"
+  chmod 600 "$KEYFILE"
+  echo "generated a new local API key at $KEYFILE"
+fi
+API_KEY="$(cat "$KEYFILE")"
+
 # Threads: this box is 2 physical cores / 4 threads, and llama.cpp gains
 # nothing from oversubscribing them.
 THREADS="${SH_LLM_THREADS:-4}"
@@ -41,4 +54,6 @@ exec "$BIN" \
   --threads "$THREADS" \
   --ctx-size "$CTX" \
   --gpu-layers 0 \
+  --api-key "$API_KEY" \
+  --no-webui \
   --no-warmup

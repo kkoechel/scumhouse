@@ -502,10 +502,39 @@ export const deducingTownStrategy = {
   mafiaChat: (v) => heuristicStrategy.mafiaChat(v),
 };
 
+/* Experimental: the pre-c866691 vote rule, kept only long enough to A/B it
+ * against the table-order rule on identical setups. Whichever loses gets
+ * deleted -- this is a measurement fixture, not a shipped option. */
+export const deducingPluralityStrategy = {
+  ...deducingStrategy,
+  name: 'deducing-plurality',
+  async dayVote(view) {
+    recordVotes(view);
+    if (view.votedThisPhase) return null;
+    const living = others(view);
+    if (!living.length) return null;
+    const team = view.role === 'MAFIA' ? knownTeamAccounts(view) : new Set();
+    const candidates = living.filter((p) => !team.has(p.user_id));
+    if (!candidates.length) return null;
+    const score = suspicion(view);
+    const confirmed = candidates.find((p) => (view.reads || {})[p.user_id] === 'MAFIA');
+    if (confirmed) return confirmed.user_id;
+    const allowed = new Set(candidates.map((p) => p.user_id));
+    const best = tableOrder(view, score).find((p) => allowed.has(p.user_id)) || candidates[0];
+    const leader = voteLeader(view, candidates);
+    if (leader && leader.id !== best.user_id) {
+      const gain = (score[best.user_id] || 0) - (score[leader.id] || 0);
+      if (gain < 2) return leader.id;
+    }
+    return best.user_id;
+  },
+};
+
 export const STRATEGIES = {
   heuristic: heuristicStrategy,
   deducing: deducingStrategy,
   'deducing-town': deducingTownStrategy,
+  'deducing-plurality': deducingPluralityStrategy,
 };
 
 /* The LLM strategy lives in its own file and is loaded on demand, so that a

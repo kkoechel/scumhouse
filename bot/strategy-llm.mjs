@@ -33,10 +33,23 @@
  * game must never stall because a model was having a bad day.
  * ---------------------------------------------------------------------------
  */
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { deducingStrategy } from './strategy.mjs';
 
 const ENDPOINT = process.env.SCUMHOUSE_LLM || 'http://127.0.0.1:8080';
 const TIMEOUT_MS = Number(process.env.SCUMHOUSE_LLM_TIMEOUT || 180000);
+
+/* Shared secret with tools/llm-server.sh. Loopback stops other machines, but
+ * not a web page in your own browser POSTing to 127.0.0.1 -- llama-server
+ * allows every origin by default. The key is something such a page cannot
+ * know. */
+const KEYFILE = process.env.SCUMHOUSE_LLM_KEYFILE
+  || path.join(os.homedir(), '.local/share/models/.scumhouse-llm-key');
+function apiKey() {
+  try { return fs.readFileSync(KEYFILE, 'utf8').trim(); } catch { return null; }
+}
 
 /* Loopback only. A misconfigured endpoint must fail closed rather than quietly
  * post this seat's private view to a stranger. */
@@ -62,7 +75,10 @@ async function ask(system, user, schema) {
   try {
     const res = await fetch(`${ENDPOINT}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey() ? { Authorization: `Bearer ${apiKey()}` } : {}),
+      },
       signal: ctl.signal,
       body: JSON.stringify({
         messages: [
