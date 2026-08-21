@@ -285,6 +285,26 @@ function worstFirst(view, candidates, score) {
   return ranked;
 }
 
+/* Suspicion built ONLY from what every seat sees identically.
+ *
+ * suspicion() reads this seat's own voteLog, and that log is written during
+ * this seat's own pass -- so a seat that acted early recorded half a day's
+ * votes and one that acted late recorded all of them. Same public game, two
+ * different tallies, and therefore two different orderings. Ranking on it
+ * looked shared and was not: measured, seats with staggered memories put 3 of 6
+ * votes on their top choice instead of 5, which is a tie, which is a no-lynch.
+ *
+ * Flips are different. Who died, how they died and what they flipped arrives
+ * through the feed identically for everyone, so an ordering built on those
+ * alone genuinely is the same in every seat. */
+function publicScore(view) {
+  const score = {};
+  for (const p of view.players) score[p.user_id] = 0;
+  // Nothing about a LIVING player can be inferred from flips alone, so this is
+  // deliberately flat. Its job is not to be clever, it is to be identical.
+  return score;
+}
+
 /* The same ranking every seat computes, over every living player.
  *
  * Ranking a seat's OWN candidate list looks equivalent and is not: each seat
@@ -297,8 +317,8 @@ function worstFirst(view, candidates, score) {
  * On day one that makes the lynch arbitrary but UNANIMOUS, which is the point:
  * an arbitrary lynch is a 1-in-N shot at a mafia, and a no-lynch is a certain
  * free night for them. */
-function tableOrder(view, score) {
-  return worstFirst(view, view.players.filter((p) => p.alive), score);
+function tableOrder(view) {
+  return worstFirst(view, view.players.filter((p) => p.alive), publicScore(view));
 }
 
 /* The standing plurality, ignoring anyone we must not vote. */
@@ -351,7 +371,7 @@ export const deducingStrategy = {
 
     const score = suspicion(view);
     const liveIds = new Set(living.map((p) => p.user_id));
-    const worst = tableOrder(view, score).find((p) => liveIds.has(p.user_id));
+    const worst = worstFirst(view, living, score).find((p) => liveIds.has(p.user_id));
     if (worst && (score[worst.user_id] || 0) > 0) {
       return `${worst.name} was pushing hard on someone who flipped town. I want an answer for that before anything else.`;
     }
@@ -381,7 +401,15 @@ export const deducingStrategy = {
     if (confirmed) return confirmed.user_id;
 
     const allowed = new Set(candidates.map((p) => p.user_id));
-    const best = tableOrder(view, score).find((p) => allowed.has(p.user_id)) || candidates[0];
+    // The shared default. Every seat computes this identically, so the table
+    // converges without talking -- which is the whole point, because a tie is a
+    // no-lynch and a no-lynch is a free night for the mafia.
+    const shared = tableOrder(view).find((p) => allowed.has(p.user_id)) || candidates[0];
+    // Private evidence may override it, but only when it is strong enough to be
+    // worth breaking the table apart for. A weak private hunch that moves one
+    // seat off the shared target costs more than it can possibly gain.
+    const privateBest = worstFirst(view, candidates, score)[0];
+    const best = (score[privateBest?.user_id] || 0) >= 2 ? privateBest : shared;
     const leader = voteLeader(view, candidates);
 
     // Consolidate on the table order, NOT on the standing plurality.
@@ -520,7 +548,15 @@ export const deducingPluralityStrategy = {
     const confirmed = candidates.find((p) => (view.reads || {})[p.user_id] === 'MAFIA');
     if (confirmed) return confirmed.user_id;
     const allowed = new Set(candidates.map((p) => p.user_id));
-    const best = tableOrder(view, score).find((p) => allowed.has(p.user_id)) || candidates[0];
+    // The shared default. Every seat computes this identically, so the table
+    // converges without talking -- which is the whole point, because a tie is a
+    // no-lynch and a no-lynch is a free night for the mafia.
+    const shared = tableOrder(view).find((p) => allowed.has(p.user_id)) || candidates[0];
+    // Private evidence may override it, but only when it is strong enough to be
+    // worth breaking the table apart for. A weak private hunch that moves one
+    // seat off the shared target costs more than it can possibly gain.
+    const privateBest = worstFirst(view, candidates, score)[0];
+    const best = (score[privateBest?.user_id] || 0) >= 2 ? privateBest : shared;
     const leader = voteLeader(view, candidates);
     if (leader && leader.id !== best.user_id) {
       const gain = (score[best.user_id] || 0) - (score[leader.id] || 0);

@@ -52,6 +52,49 @@ for (const seats of [5, 7, 9]) {
   }
 }
 
+/* Seats do not share a memory, and that is the trap this pins.
+ *
+ * Each seat records the day's votes during its OWN pass, so one that acted
+ * early holds half a tally and one that acted late holds all of it. An
+ * ordering computed from that looks shared and is not -- measured, it dropped
+ * the bloc from 5 of 6 to 3 of 6, which is a tie, which is a no-lynch. The
+ * shared ordering must therefore come only from what the feed gives everyone
+ * identically. */
+{
+  const N = 7, DEAD = 4;
+  const mk = (me, voteLog) => ({
+    me, role: 'TOWN', slot: me, phase: 'day', phase_no: 3, status: 'active',
+    players: Array.from({ length: N }, (_, i) => ({
+      user_id: i + 1, name: 'p' + (i + 1), seat: i + 1, alive: i + 1 !== DEAD,
+      died_phase_no: i + 1 === DEAD ? 2 : null, died_cause: i + 1 === DEAD ? 'lynch' : null,
+    })),
+    thread: [], votes: [], flips: [{ slot_index: DEAD, user_id: DEAD, role: 'TOWN' }],
+    teamMessages: [], known: [], reads: {}, trackResults: {}, watchResults: {},
+    lastProtected: null, saidThisPhase: true, saidToTeamThisPhase: true,
+    votedThisPhase: false, actedThisNight: false, investigatedThisNight: false,
+    memory: { voteLog }, nameOf: (id) => 'p' + id,
+  });
+  const FULL    = { 2: { 1: 4, 2: 4, 3: 4, 5: 1, 6: 1, 7: 4 } };
+  const PARTIAL = { 2: { 1: 4, 2: 4, 3: 4, 5: 1 } };
+  const EARLY   = { 2: { 1: 4, 2: 4 } };
+
+  const picks = [];
+  for (let me = 1; me <= N; me++) {
+    if (me === DEAD) continue;
+    const log = me % 3 === 0 ? EARLY : me % 3 === 1 ? PARTIAL : FULL;
+    picks.push(await STRATEGIES.deducing.dayVote(mk(me, log)));
+  }
+  const tally = {};
+  for (const p of picks) tally[p] = (tally[p] || 0) + 1;
+  const largest = Math.max(...Object.values(tally));
+  const majority = Math.floor((N - 1) / 2) + 1;
+  console.log(`  staggered vote memories: largest bloc ${largest}/${N - 1} ` +
+              `(majority ${majority}) ${largest >= majority ? 'ok' : 'FAILED'}  picks=[${picks}]`);
+  assert.ok(largest >= majority,
+    'seats with differently-staggered vote memories no longer agree: the shared ' +
+    'ordering has picked up a seat-private input again');
+}
+
 // The target must not be the same seat every day, or the bots are a fixed
 // firing squad and the first player in the list is unplayable.
 const targets = new Set();

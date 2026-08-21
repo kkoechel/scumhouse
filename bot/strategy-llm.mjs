@@ -250,6 +250,13 @@ export const llmStrategy = {
     if (view.votedThisPhase) return null;
     const legal = alive(view).filter((p) => p.user_id !== view.me).map((p) => p.user_id);
     if (!legal.length) return null;
+
+    // Certainties are not a judgement call, so they are not the model's to
+    // make. A proved mafia gets voted without asking: the first live test of
+    // this seat held a cop read on Eve and voted Di anyway, which is a 3B model
+    // throwing away the only fact on the table. Ask it about doubt, not proof.
+    const proved = legal.find((id) => (view.reads || {})[id] === 'MAFIA');
+    if (proved !== undefined) return proved;
     const ans = await ask(SYSTEM, frame(view,
       `Vote to lynch one player. Legal ids: ${legal.join(', ')}. ` +
       'A tie means nobody is lynched, which helps the mafia, so agreeing with ' +
@@ -273,6 +280,12 @@ export const llmStrategy = {
     if (view.role === 'VIGILANTE') pool = pool.filter((p) => p.user_id !== view.me);
     const legal = pool.map((p) => p.user_id);
     if (!legal.length) return fallback;
+
+    // Same rule at night: a vigilante holding a proved mafia shoots it.
+    if (view.role === 'VIGILANTE') {
+      const proved = legal.find((id) => (view.reads || {})[id] === 'MAFIA');
+      if (proved !== undefined) return { action: 'vigkill', target: proved };
+    }
 
     const task = {
       kill: 'Choose who your team kills tonight. Kill the townsperson most dangerous to you.',
