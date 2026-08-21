@@ -83,6 +83,9 @@ async function buildView() {
     // strategy wants to remember across days it has to write down itself. It
     // holds only what the seat was already sent -- notes, not extra access.
     memory: (seat.state.mem = seat.state.mem || {}),
+    // What the tracker and watcher actually learned. night -> result.
+    trackResults: seat.state.trackResults || {},
+    watchResults: seat.state.watchResults || {},
     nameOf: (id) => seat.nameOf(id),
   };
 }
@@ -112,6 +115,10 @@ async function passInner() {
   if (g.status !== 'active' || !seat.isAlive(seat.me)) return;
 
   await seat.postCover();
+  // Sealed at dawn, so these belong to nights already resolved -- collect them
+  // on every pass rather than inside the night branch, which would be too early.
+  await seat.collectTrackerReport();
+  await seat.collectWatcherReport();
 
   const phaseTag = g.phase + g.phase_no;
   const view = await buildView();
@@ -161,7 +168,7 @@ async function passInner() {
         await seat.submitBlock(answer.slot);
         seat.log('blocked ' + seat.nameOf(answer.account));
       } else if (seat.card.role === 'TRACKER') {
-        await seat.submitTrack(answer.slot);
+        await seat.submitTrack(answer.slot, answer.account);
         seat.log('following ' + seat.nameOf(answer.account));
       }
     }

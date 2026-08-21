@@ -420,11 +420,13 @@ export class Seat {
     });
   }
 
-  async submitTrack(targetSlot) {
+  async submitTrack(targetSlot, targetAccount = null) {
     const night = this.feed.game.phase_no;
     const eph = await this.SH.ephemeralKeyPair();
     this.state.trackEph = this.state.trackEph || {};
-    this.state.trackEph[night] = eph.priv;
+    // The key alone is not enough to read the answer later: the report says who
+    // the SUBJECT visited, and it is only meaningful next to who was asked about.
+    this.state.trackEph[night] = { priv: eph.priv, slot: targetSlot, account: targetAccount };
     this.save();
     const payload = JSON.stringify({
       game: this.gameId, slot: this.card.slot, night, target_slot: targetSlot, ephemeral_pub: eph.pub,
@@ -439,7 +441,7 @@ export class Seat {
     const night = this.feed.game.phase_no;
     const eph = await this.SH.ephemeralKeyPair();
     this.state.watchEph = this.state.watchEph || {};
-    this.state.watchEph[night] = eph.priv;
+    this.state.watchEph[night] = { priv: eph.priv, account: target };
     this.save();
     const payload = JSON.stringify({
       game: this.gameId, slot: this.card.slot, night, target, ephemeral_pub: eph.pub,
@@ -449,6 +451,107 @@ export class Seat {
       ephemeral_pub: eph.pub, sig: await this.SH.signAnon(this.state.identity.sigkPriv, payload),
     });
     this.log('watching ' + this.nameOf(target));
+  }
+
+
+  /* ---------- tracker and watcher answers ----------
+   *
+   * Both roles seal their answer at dawn, to an ephemeral key the client kept
+   * from the moment it asked. Without these two methods a bot dealt TRACKER or
+   * WATCHER queries every night and never opens the reply -- the same waste the
+   * cop's reads would be if nothing consulted them. public/js/game.js has done
+   * this from the start; the bot simply never did. */
+
+  /** The private half of a stored ephemeral, tolerating the older bare-string shape. */
+  _eph(bucket, night) {
+    const v = (this.state[bucket] || {})[night];
+    if (!v) return null;
+    return typeof v === 'string' ? { priv: v } : v;
+  }
+
+  /** "The player you followed visited X" -- X is an account, or null for nobody.
+   *
+   * Scans every night this seat still holds a key for, not just the current one:
+   * the report is sealed at DAWN, so the night it belongs to is already over by
+   * the time it can be read, and a collector keyed on the current phase would
+   * never once fire. */
+  async collectTrackerReport() {
+    if (!this.card || this.card.role !== 'TRACKER') return null;
+    this.state.trackResults = this.state.trackResults || {};
+    let latest = null;
+    for (const night of Object.keys(this.state.trackEph || {})) {
+      if (this.state.trackResults[night]) continue;
+      const eph = this._eph('trackEph', night);
+      if (!eph) continue;
+      for (const r of this.feed.tracker_reports || []) {
+        if (Number(r.slot_index) !== this.card.slot || Number(r.night_no) !== Number(night)) continue;
+        try {
+          const report = await this.SH.eciesOpen(r.ciphertext, eph.priv, TRACK_INFO);
+          const out = { night: Number(night), subject: eph.account ?? null, visited: report.visited ?? null };
+          this.state.trackResults[night] = out;
+          this.save();
+          this.log(out.visited === null
+            ? `${this.nameOf(out.subject)} visited nobody on night ${night}`
+            : `${this.nameOf(out.subject)} visited ${this.nameOf(out.visited)} on night ${night}`);
+          latest = out;
+        } catch (e) { /* not ours, or the key is gone */ }
+      }
+    }
+    return latest;
+  }
+
+  /** Resolve one visitor slot to an account, or null if it cannot be verified.
+   *
+   * A visitor row is posted anonymously, so it carries TWO signatures -- the
+   * slot's and the account's -- and both must check out against the same claim.
+   * Accepting an unverified one would let a player name anybody as a visitor. */
+  async _reverseAccount(slotIndex, innerKey) {
+    if (!innerKey) return null;
+    const row = (this.feed.reverse_envelopes || []).find((x) => Number(x.slot_index) === Number(slotIndex));
+    if (!row) return null;
+    try {
+      const outer = await this.SH.eciesOpen(row.ciphertext, this.state.identity.idkPriv, REVERSE_INFO);
+      const payload = await this.SH.innerOpen(innerKey, outer.inner);
+      const claim = JSON.stringify({ game: payload.game, slot: payload.slot, account: payload.account });
+      const slot = (this.feed.slots || []).find((x) => Number(x.slot_index) === Number(payload.slot));
+      const acct = (this.feed.account_keys || []).find((k) => Number(k.user_id) === Number(payload.account));
+      if (!slot || !acct) return null;
+      const slotOk = await this.SH.verifyAnon(slot.sigk_pub, claim, payload.slot_sig);
+      const acctOk = await this.SH.verifyAnon(acct.sigk_pub, claim, payload.acct_sig);
+      if (!slotOk || !acctOk || Number(payload.slot) !== Number(slotIndex)) return null;
+      return Number(payload.account);
+    } catch (e) { return null; }
+  }
+
+  /** "These accounts visited the player you watched." Same dawn-timing rule as
+   * the tracker, so this also sweeps every night it still holds a key for. */
+  async collectWatcherReport() {
+    if (!this.card || !this.amWatcher()) return null;
+    this.state.watchResults = this.state.watchResults || {};
+    let latest = null;
+    for (const night of Object.keys(this.state.watchEph || {})) {
+      if (this.state.watchResults[night]) continue;
+      const eph = this._eph('watchEph', night);
+      if (!eph) continue;
+      for (const r of this.feed.watcher_reports || []) {
+        if (Number(r.slot_index) !== this.card.slot || Number(r.night_no) !== Number(night)) continue;
+        let report;
+        try {
+          report = await this.SH.eciesOpen(r.ciphertext, eph.priv, WATCH_INFO);
+        } catch (e) { continue; }
+        const visitors = [];
+        for (const v of report.visitors || []) {
+          const acct = await this._reverseAccount(v.slot, v.inner_key);
+          if (acct !== null) visitors.push(acct);
+        }
+        const out = { night: Number(night), subject: eph.account ?? null, visitors };
+        this.state.watchResults[night] = out;
+        this.save();
+        this.log(`night ${night}: ${visitors.length} identified visitor(s) to ${this.nameOf(out.subject)}`);
+        latest = out;
+      }
+    }
+    return latest;
   }
 
   /* ---------- flips ---------- */

@@ -228,6 +228,37 @@ function suspicion(view) {
     }
   }
 
+  /* What the tracker and watcher saw.
+   *
+   * Who died at night, by night. A night kill is the mafia's own choice, so the
+   * set of people who walked to that player's door is the shortest suspect list
+   * this game ever produces. */
+  const killedOn = {};
+  for (const p of view.players) {
+    if (!p.alive && p.died_cause === 'kill' && p.died_phase_no != null) {
+      (killedOn[p.died_phase_no] = killedOn[p.died_phase_no] || []).push(p.user_id);
+    }
+  }
+
+  // Tracker: "the player I followed went to X's door".
+  for (const r of Object.values(view.trackResults || {})) {
+    if (r.subject == null || r.visited == null) continue;
+    const hitVictim = (killedOn[r.night] || []).includes(r.visited);
+    // Visiting the night's victim is not proof: the vigilante and a failed
+    // doctor walk the same road. It is still the strongest thing on offer.
+    score[r.subject] = (score[r.subject] || 0) + (hitVictim ? 4 : 1);
+  }
+
+  // Watcher: "these people came to the door of the player I watched".
+  for (const r of Object.values(view.watchResults || {})) {
+    if (r.subject == null) continue;
+    const subjectDied = (killedOn[r.night] || []).includes(r.subject);
+    for (const v of r.visitors || []) {
+      if (v === view.me) continue;
+      score[v] = (score[v] || 0) + (subjectDied ? 4 : 1);
+    }
+  }
+
   // A cop read is not a heuristic, it is an answer, and it outranks the lot.
   for (const [acct, role] of Object.entries(view.reads || {})) {
     score[acct] = role === 'MAFIA' ? 99 : -99;
