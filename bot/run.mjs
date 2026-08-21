@@ -17,7 +17,7 @@
 import path from 'path';
 import os from 'os';
 import { Seat } from './client.mjs';
-import { STRATEGIES } from './strategy.mjs';
+import { STRATEGIES, loadStrategy } from './strategy.mjs';
 
 function arg(name, fallback) {
   const i = process.argv.indexOf('--' + name);
@@ -37,9 +37,9 @@ const statePath = arg('state', path.join(os.homedir(), '.scumhouse', `bot-${game
 const quiet = flag('quiet');
 
 const strategyName = arg('strategy', process.env.SCUMHOUSE_STRATEGY || 'deducing');
-const strategy = STRATEGIES[strategyName];
+const strategy = await loadStrategy(strategyName);
 if (!strategy) {
-  console.error(`unknown --strategy '${strategyName}'; have: ${Object.keys(STRATEGIES).join(', ')}`);
+  console.error(`unknown --strategy '${strategyName}'; have: ${Object.keys(STRATEGIES).join(', ')}, llm`);
   process.exit(2);
 }
 

@@ -507,3 +507,16 @@ export const STRATEGIES = {
   deducing: deducingStrategy,
   'deducing-town': deducingTownStrategy,
 };
+
+/* The LLM strategy lives in its own file and is loaded on demand, so that a
+ * seat which never asks for it pays nothing -- and so a broken model server can
+ * never stop the ordinary bots from playing. */
+export async function loadStrategy(name) {
+  if (STRATEGIES[name]) return STRATEGIES[name];
+  if (name === 'llm') {
+    const { llmStrategy } = await import('./strategy-llm.mjs');
+    STRATEGIES.llm = llmStrategy;
+    return llmStrategy;
+  }
+  return null;
+}
